@@ -1,4 +1,7 @@
+using Azure.Identity;
+using Azure.Security.KeyVault.Secrets;
 using edpicker_api.Services;
+using Microsoft.Extensions.DependencyInjection;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,14 +21,16 @@ builder.Services.AddCors(options =>
               .AllowAnyMethod(); // Allow all HTTP methods
     });
 });
+string vaultUrl = builder.Configuration["CosmoConfig:vault-url"];
+var client = new SecretClient(vaultUri: new Uri(vaultUrl), credential: new DefaultAzureCredential());
 
+KeyVaultSecret secret = client.GetSecret("edpicker-cosmo-primarykey");
 builder.Services.AddScoped<ISchoolListRepository, SchoolListRepository>(
     x => new SchoolListRepository(builder.Configuration.GetConnectionString("cosmoDb"),
-    builder.Configuration["CosmoConfig:primaryKey"],
+    builder.Configuration[secret.Value],
     builder.Configuration["CosmoConfig:databaseName"],
     builder.Configuration["CosmoConfig:containerName"]
     ));
-
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -34,7 +39,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
-app.UseCors("AllowSpecificOrigins");
+app.UseCors("AllowSpecificOrigins"); 
 app.UseHttpsRedirection();
 
 app.UseAuthorization();
