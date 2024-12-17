@@ -91,9 +91,12 @@ namespace edpicker_api.Models
         public SocialMediaDetails SocialMedia { get; set; }
 
         [JsonProperty("photos")]
-        public string Photos { get; set; }
+        public string[] Photos { get; set; }
 
         [JsonProperty("nextadmissiondate")]
         public string NextAdmissionDate { get; set; }
+
+        [JsonProperty("infrastructure")]
+        public string[] Infrastructure { get; set; }
     }
 }

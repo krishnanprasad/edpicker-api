@@ -13,7 +13,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSpecificOrigins", policy =>
     {
-        policy.WithOrigins("http://localhost:4200") // Specify allowed origin (Angular app)
+        policy.WithOrigins("http://localhost:4200", "https://edpicker-gkg3hndqb4feeqdt.eastasia-01.azurewebsites.net") // Specify allowed origin (Angular app)
               .AllowAnyHeader() // Allow all headers
               .AllowAnyMethod(); // Allow all HTTP methods
     });
