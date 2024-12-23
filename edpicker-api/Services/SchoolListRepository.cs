@@ -8,7 +8,7 @@ namespace edpicker_api.Services
     public class SchoolListRepository : ISchoolListRepository
     {
         private readonly Microsoft.Azure.Cosmos.Container _container;
-        public SchoolListRepository(string conn,string key,string dbName,string containerName)
+        public SchoolListRepository(string conn, string key, string dbName, string containerName)
         {
             var cosmoClient = new CosmosClient(conn, key, new CosmosClientOptions() { });
             _container = cosmoClient.GetContainer(dbName, containerName);
@@ -171,7 +171,7 @@ namespace edpicker_api.Services
         {
             try
             {
-                // Query the document to retrieve the partition key value
+                // Step 1: Query the document to retrieve the school details, including partition keys
                 var query = _container.GetItemQueryIterator<School>(
                     new QueryDefinition("SELECT * FROM c WHERE c.id = @id").WithParameter("@id", id)
                 );
@@ -179,8 +179,8 @@ namespace edpicker_api.Services
                 var results = new List<School>();
                 while (query.HasMoreResults)
                 {
-                    var response2 = await query.ReadNextAsync();
-                    results.AddRange(response2.ToList());
+                    var response = await query.ReadNextAsync();
+                    results.AddRange(response.ToList());
                 }
 
                 var school = results.FirstOrDefault();
@@ -189,11 +189,16 @@ namespace edpicker_api.Services
                     return null; // Document not found
                 }
 
+                // Step 2: Call IncrementViewCountAsync with all partition key values
+                await IncrementViewCountAsync(school.Id, school.SchoolType.ToString(), school.City, school.Board);
+
+                // Step 3: Return the school details
                 return school;
             }
             catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
-                return null; // Document not found
+                Console.WriteLine($"Document not found: {ex.Message}");
+                return null;
             }
             catch (Exception ex)
             {
@@ -201,5 +206,54 @@ namespace edpicker_api.Services
                 throw;
             }
         }
+
+
+        public async Task IncrementViewCountAsync(string id, string schoolType, string city, string board)
+        {
+            try
+            {
+                // Define the patch operations
+                var patchOperations = new List<PatchOperation>
+        {
+            PatchOperation.Increment("/viewcount", 1)
+        };
+
+                // Construct the hierarchical partition key using an object array
+                //var partitionKeyValue = new PartitionKey(new object[]
+                //{
+                //    schoolType,
+                //    city,
+                //    board
+                //});
+
+                PartitionKeyBuilder pkBuilder = new PartitionKeyBuilder();
+                pkBuilder.Add(3);              // schooltype (int)
+                pkBuilder.Add("Coimbatore");   // city (string)
+                pkBuilder.Add("2");            // board (string)
+                PartitionKey partitionKeyValue = pkBuilder.Build();
+
+               
+                // Perform the patch operation
+                var response = await _container.PatchItemAsync<object>(
+                    id,
+                    partitionKeyValue,
+                    patchOperations
+                );
+
+                // Log success
+                Console.WriteLine($"Document updated successfully. Status Code: {response.StatusCode}");
+            }
+            catch (CosmosException ex)
+            {
+                Console.WriteLine($"Cosmos DB error: {ex.StatusCode} - {ex.Message}");
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"An error occurred: {ex.Message}");
+                throw;
+            }
+        }
+
     }
 }

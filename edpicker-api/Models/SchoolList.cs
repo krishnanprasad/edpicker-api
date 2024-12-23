@@ -98,5 +98,7 @@ namespace edpicker_api.Models
 
         [JsonProperty("infrastructure")]
         public string[] Infrastructure { get; set; }
+        [JsonProperty("viewcount")]
+        public int Viewcount { get; set; }
     }
 }
