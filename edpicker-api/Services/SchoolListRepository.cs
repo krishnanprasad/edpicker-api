@@ -183,14 +183,14 @@ namespace edpicker_api.Services
                     results.AddRange(response.ToList());
                 }
 
-                var school = results.FirstOrDefault();
+                School school = results.FirstOrDefault();
                 if (school == null)
                 {
                     return null; // Document not found
                 }
-
+                bool doesItHasIncrement = school.Viewcount != 0;
                 // Step 2: Call IncrementViewCountAsync with all partition key values
-                await IncrementViewCountAsync(school.Id, school.SchoolType.ToString(), school.City, school.Board);
+                await IncrementViewCountAsync(school.Id, school.SchoolType.ToString(), school.City, school.Board, doesItHasIncrement);
 
                 // Step 3: Return the school details
                 return school;
@@ -208,31 +208,31 @@ namespace edpicker_api.Services
         }
 
 
-        public async Task IncrementViewCountAsync(string id, string schoolType, string city, string board)
+        public async Task IncrementViewCountAsync(string id, string schoolType, string city, string board, bool doesItHasIncrement)
         {
             try
             {
-                // Define the patch operations
-                var patchOperations = new List<PatchOperation>
-        {
-            PatchOperation.Increment("/viewcount", 1)
-        };
+                var patchOperations = new List<PatchOperation>();
 
-                // Construct the hierarchical partition key using an object array
-                //var partitionKeyValue = new PartitionKey(new object[]
-                //{
-                //    schoolType,
-                //    city,
-                //    board
-                //});
+                if (doesItHasIncrement)
+                {
+                    // If viewcount exists, increment it by 1
+                    patchOperations.Add(PatchOperation.Increment("/viewcount", 1));
+                }
+                else
+                {
+                    // If viewcount does not exist, set it to 1
+                    patchOperations.Add(PatchOperation.Set("/viewcount", 1));
+                }
+
 
                 PartitionKeyBuilder pkBuilder = new PartitionKeyBuilder();
-                pkBuilder.Add(3);              // schooltype (int)
-                pkBuilder.Add("Coimbatore");   // city (string)
-                pkBuilder.Add("2");            // board (string)
+                pkBuilder.Add(Convert.ToInt16(schoolType));              // schooltype (int)
+                pkBuilder.Add(city);   // city (string)
+                pkBuilder.Add(board);            // board (string)
                 PartitionKey partitionKeyValue = pkBuilder.Build();
 
-               
+
                 // Perform the patch operation
                 var response = await _container.PatchItemAsync<object>(
                     id,

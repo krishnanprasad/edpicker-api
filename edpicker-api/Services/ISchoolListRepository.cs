@@ -10,6 +10,6 @@ namespace edpicker_api.Services
         Task<School> GetSchoolAllAsync(string id);
         Task<School> UpdateSchool(School school);
         Task<School> GetSchoolDetailAsync(string id);
-        Task IncrementViewCountAsync(string id, string schoolType, string city, string board);
+        Task IncrementViewCountAsync(string id, string schoolType, string city, string board, bool doesItHasIncrement);
     }
 }
