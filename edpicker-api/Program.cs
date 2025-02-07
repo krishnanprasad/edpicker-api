@@ -17,6 +17,7 @@ builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddApplicationInsightsTelemetry();
 // Configure CORS
 builder.Services.AddCors(options =>
 {
@@ -28,19 +29,6 @@ builder.Services.AddCors(options =>
     });
 });
 
-builder.Services.AddScoped<ISchoolListRepository, SchoolListRepository>(
-    x => new SchoolListRepository(builder.Configuration.GetConnectionString("cosmoDb"),
-    builder.Configuration["CosmoConfig:primaryKey"],
-    builder.Configuration["CosmoConfig:databaseName"],
-    builder.Configuration["CosmoConfig:containerName"]
-    ));
-
-builder.Services.AddScoped<IRegistrationRepository, RegistrationRepository>(
-    x => new RegistrationRepository(builder.Configuration.GetConnectionString("cosmoDb"),
-    key: builder.Configuration["CosmoConfig:primaryKey"],
-    dbName: builder.Configuration["CosmoConfig:databaseName"],
-    containerName: builder.Configuration["CosmoConfig:containerName_registration"]
-    ));
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
