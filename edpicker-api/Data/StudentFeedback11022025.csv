@@ -1,0 +1,3 @@
+studentid,studentname,class,section,mathremark,scienceremark,englishremark,languageremark,socialremark,teacherfeedback
+student_abc,John Doe,10,A,"Improved from 70% to 75%. Good geometry comprehension","Strong understanding of physics basics.","Needs more practice with grammar.","Shows interest in Spanish vocabulary.","Active in group discussions.","Overall improvement. Keep up the good work!"
+student_xyz,Jane Smith,12,B,"Consistent 85%. Working on advanced algebra.","Requires more time in biology labs.","Demonstrates clear writing skills.","Excellent French conversation skills.","Occasional tardiness in class projects.","Excellent potential. Encourage more group activities."

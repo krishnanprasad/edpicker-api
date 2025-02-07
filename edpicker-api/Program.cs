@@ -1,10 +1,18 @@
+using Azure.Identity;
 using edpicker_api.Services;
 using edpicker_api.Services.Interface;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+string openAiApiKey = "OpenAIKey";
+builder.Configuration.AddAzureKeyVault(
+    new Uri("https://edpicker-vault.vault.azure.net/"),
+    new DefaultAzureCredential()
+);
+builder.Services.AddSingleton(new OpenAI.OpenAIClient(openAiApiKey));
 
+// Add services to the container.
+builder.Services.AddSingleton(new OpenAI.OpenAIClient(openAiApiKey));
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
