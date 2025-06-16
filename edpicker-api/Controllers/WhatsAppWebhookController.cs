@@ -1,11 +1,12 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using edpicker_api.Models;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Newtonsoft.Json;
 
 namespace edpicker_api.Controllers
 {
     //[Route("api/[controller]")]
-    [Route("webhook/whatsapp")] // Define your webhook endpoint route
+    [Route("{schoolid}/webhook/whatsapp")]// Define your webhook endpoint route
     [ApiController]
     public class WhatsAppWebhookController : ControllerBase
     {
@@ -24,6 +25,7 @@ namespace edpicker_api.Controllers
             [FromQuery(Name = "hub.challenge")] string challenge,
             [FromQuery(Name = "hub.verify_token")] string verifyToken)
         {
+            var schoolid = (string)RouteData.Values["schoolid"];
             _logger.LogInformation($"Webhook Verification Request received - Mode: {mode}, Challenge: {challenge}, Verify Token: {verifyToken}");
 
             string expectedVerifyToken = "HelloEdPicker"; // Store your verify token in appsettings.json or environment variables
@@ -43,6 +45,7 @@ namespace edpicker_api.Controllers
         [HttpPost]
         public IActionResult ReceiveWebhookEvent([FromBody] object webhookPayload)
         {
+            var schoolid = (string)RouteData.Values["schoolid"];
             _logger.LogInformation("Webhook Event Received:");
             _logger.LogInformation(JsonConvert.SerializeObject(webhookPayload, Formatting.Indented)); // Log the entire payload for debugging
 
@@ -52,31 +55,33 @@ namespace edpicker_api.Controllers
 
             try
             {
+                var payload = JsonConvert.DeserializeObject<WebhookPayload>(webhookPayload.ToString());
+
                 // Deserialize the object to a dynamic or specific class if you define one
-                dynamic payload = webhookPayload;
+               // dynamic payload = webhookPayload;
 
                 // Example of accessing fields (adjust based on actual payload structure)
-                if (payload.entry != null && payload.entry.Count > 0)
+                if (payload.Entry != null && payload.Entry.Count > 0)
                 {
-                    foreach (var entry in payload.entry)
+                    foreach (var entry in payload.Entry)
                     {
-                        if (entry.changes != null && entry.changes.Count > 0)
+                        if (entry.Changes != null && entry.Changes.Count > 0)
                         {
-                            foreach (var change in entry.changes)
+                            foreach (var change in entry.Changes)
                             {
-                                if (change.field == "messages") // Check if the update is about messages
+                                if (change.Field == "messages") // Check if the update is about messages
                                 {
-                                    if (change.value != null && change.value.messages != null)
+                                    if (change.Value != null && change.Value.Messages != null)
                                     {
-                                        foreach (var message in change.value.messages)
+                                        foreach (var message in change.Value.Messages)
                                         {
-                                            string messageType = message.type;
-                                            string fromNumber = change.value.contacts[0].wa_id; // Sender's WhatsApp ID
+                                            string messageType = message.Type;
+                                            string fromNumber = change.Value.Contacts[0].WaId; // Sender's WhatsApp ID
                                             string messageText = "";
 
                                             if (messageType == "text")
                                             {
-                                                messageText = message.text.body;
+                                                messageText = message.Text.Body;
                                             }
                                             // Handle other message types (image, audio, etc.) as needed
 
@@ -102,4 +107,5 @@ namespace edpicker_api.Controllers
             }
         }
     }
+    
 }
