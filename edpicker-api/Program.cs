@@ -11,6 +11,9 @@ builder.Configuration.AddAzureKeyVault(
 );
 builder.Services.AddSingleton(new OpenAI.OpenAIClient(openAiApiKey));
 
+// Add services to the container.
+builder.Services.AddSingleton(new OpenAI.OpenAIClient(openAiApiKey));
+builder.Services.AddSingleton<IJobBoardRepository, JobBoardRepository>();
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
