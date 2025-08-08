@@ -39,7 +39,7 @@ namespace edpicker_api.Controllers
 
             // Step A: Search the file for the best matching line
             // (Remember, we only get doc index, not the snippet text by default.)
-            string snippet = await openAiHelper.GetRelevantSnippetAsync(schoolFileId, userQuestion);
+            string snippet = await openAiHelper.GetAnswerFromGPTAsync(schoolFileId, userQuestion);
 
             // Step B: Call GPT with the snippet and user question to generate a final answer
             string finalAnswer = await openAiHelper.GetAnswerFromGPTAsync(snippet, userQuestion);

@@ -205,6 +205,7 @@ namespace edpicker_api.Services
                 Console.WriteLine($"An error occurred: {ex.Message}");
                 throw;
             }
+
         }
 
 

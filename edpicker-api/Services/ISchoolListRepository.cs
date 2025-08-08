@@ -1,4 +1,5 @@
 ﻿using edpicker_api.Models;
+using edpicker_api.Models.Dto;
 
 namespace edpicker_api.Services
 {
@@ -11,5 +12,6 @@ namespace edpicker_api.Services
         Task<School> UpdateSchool(School school);
         Task<School> GetSchoolDetailAsync(string id);
         Task IncrementViewCountAsync(string id, string schoolType, string city, string board, bool doesItHasIncrement);
+       
     }
 }

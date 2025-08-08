@@ -34,5 +34,6 @@ namespace edpicker_api.Controllers
             }
             return Ok(school);
         }
+
     }
 }
