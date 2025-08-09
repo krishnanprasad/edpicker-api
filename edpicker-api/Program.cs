@@ -21,6 +21,7 @@ builder.Services.AddSingleton(new OpenAI.OpenAIClient(openAiApiKey));
 builder.Services.AddScoped<IJobBoardRepository, JobBoardRepository>();
 builder.Services.AddScoped<ISchoolAccountRepository, SchoolAccountRepository>();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+builder.Services.AddScoped<IQuestionPaperRepository, QuestionPaperRepository>();
 builder.Services.AddControllers();
 builder.Services.AddDbContext<EdPickerDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
