@@ -1,5 +1,6 @@
 using System.Text;
 using edpicker_api.Models.Dto;
+using edpicker_api.Models.Methods;
 using edpicker_api.Services.Interface;
 using Microsoft.AspNetCore.Hosting;
 using UglyToad.PdfPig;
@@ -11,39 +12,44 @@ namespace edpicker_api.Services
     {
         private readonly IWebHostEnvironment _env;
         private readonly ILogger<QuestionPaperRepository> _logger;
+        private readonly IConfiguration _configuration;
+        private static readonly string[] SentenceDelimiters = { ".", "!", "?" };
 
-        public QuestionPaperRepository(IWebHostEnvironment env, ILogger<QuestionPaperRepository> logger)
+        public QuestionPaperRepository(IWebHostEnvironment env, ILogger<QuestionPaperRepository> logger, IConfiguration configuration)
         {
             _env = env;
             _logger = logger;
+            _configuration = configuration;
         }
 
         public async Task<IEnumerable<QuestionDto>> GenerateQuestionsAsync(GenerateQuestionsRequestDto request)
         {
-            var questions = new List<QuestionDto>();
             try
             {
-                string pdfPath = Path.Combine(_env.WebRootPath ?? "wwwroot", "PDFs", request.Subject, $"{request.Topic}.pdf");
-                string content = ReadPdfContent(pdfPath);
-                // TODO: Use OpenAI to create questions from content
-                for (int i = 0; i < request.NumberOfQuestions; i++)
+                string contentDir = Path.Combine(_env.ContentRootPath, "Content", "9thScience");
+                var pdfFiles = Directory.GetFiles(contentDir, "*.pdf");
+
+                // Combine content from all PDFs
+                var sb = new StringBuilder();
+                foreach (var pdfPath in pdfFiles)
                 {
-                    questions.Add(new QuestionDto
-                    {
-                        QuestionId = Guid.NewGuid().ToString(),
-                        QuestionText = $"Sample question {i + 1} for {request.Topic}",
-                        Hint = "Sample hint"
-                    });
+                    sb.AppendLine(ReadPdfContent(pdfPath));
                 }
+                string content = sb.ToString();
+                string openAIApiKeyTest = _configuration["OpenAIKey"];
+                // Get your OpenAI API key from configuration/environment
+                string openAIApiKey = Environment.GetEnvironmentVariable("OpenAIKey") ?? "";
+
+                var questions = await GenerateQuestionsWithOpenAIAsync(request, content, openAIApiKey);
+
+                return questions;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error generating questions");
                 throw;
             }
-            return await Task.FromResult(questions);
         }
-
         public async Task<QuestionDto> RefreshQuestionAsync(RefreshQuestionRequestDto request)
         {
             try
@@ -102,5 +108,241 @@ namespace edpicker_api.Services
             }
             return sb.ToString();
         }
+        private async Task<List<QuestionDto>> GenerateQuestionsWithOpenAIAsync(GenerateQuestionsRequestDto request, string content, string openAIApiKey)
+        {
+            var openAiHelper = new OpenAISearchMethod(openAIApiKey);
+            var allQuestions = new List<QuestionDto>();
+
+            // Split content into chunks to stay within token limits
+            var contentChunks = ChunkContent(content, maxChunkSize: 8000);
+
+            // If no chunks available, create fallback questions
+            if (contentChunks.Count == 0)
+            {
+                return await GenerateFallbackQuestions(request);
+            }
+
+            int questionsPerChunk = Math.Max(1, request.NumberOfQuestions / contentChunks.Count);
+            int remainingQuestions = request.NumberOfQuestions;
+
+            // First pass: Generate questions from chunks
+            foreach (var chunk in contentChunks)
+            {
+                if (remainingQuestions <= 0) break;
+
+                // Calculate questions for this chunk
+                int questionsForThisChunk = Math.Min(questionsPerChunk, remainingQuestions);
+                if (chunk == contentChunks.Last()) // Last chunk gets any remaining questions
+                {
+                    questionsForThisChunk = remainingQuestions;
+                }
+
+                var chunkQuestions = await GenerateQuestionsFromChunk(
+                    openAiHelper, request, chunk, questionsForThisChunk);
+
+                allQuestions.AddRange(chunkQuestions);
+                remainingQuestions -= questionsForThisChunk;
+            }
+
+            // **NEW LOGIC: Ensure exact count**
+            if (allQuestions.Count > request.NumberOfQuestions)
+            {
+                // Too many questions - randomly select the exact number
+                var random = new Random();
+                allQuestions = allQuestions
+                    .OrderBy(x => random.Next())
+                    .Take(request.NumberOfQuestions)
+                    .ToList();
+            }
+            else if (allQuestions.Count < request.NumberOfQuestions)
+            {
+                // Too few questions - generate more from the best chunks
+                int questionsNeeded = request.NumberOfQuestions - allQuestions.Count;
+
+                // Use the largest chunks to generate additional questions
+                var bestChunks = contentChunks
+                    .OrderByDescending(c => c.Length)
+                    .Take(Math.Min(3, contentChunks.Count)) // Use top 3 largest chunks
+                    .ToList();
+
+                foreach (var chunk in bestChunks)
+                {
+                    if (questionsNeeded <= 0) break;
+
+                    var additionalQuestions = await GenerateQuestionsFromChunk(
+                        openAiHelper, request, chunk, questionsNeeded);
+
+                    // Filter out duplicates based on question text similarity
+                    var newQuestions = additionalQuestions
+                        .Where(newQ => !allQuestions.Any(existingQ =>
+                            AreSimilarQuestions(existingQ.QuestionText, newQ.QuestionText)))
+                        .Take(questionsNeeded)
+                        .ToList();
+
+                    allQuestions.AddRange(newQuestions);
+                    questionsNeeded -= newQuestions.Count;
+                }
+
+                // If still not enough, generate simple fallback questions
+                if (allQuestions.Count < request.NumberOfQuestions)
+                {
+                    int stillNeeded = request.NumberOfQuestions - allQuestions.Count;
+                    var fallbackQuestions = await GenerateFallbackQuestions(request, stillNeeded);
+                    allQuestions.AddRange(fallbackQuestions);
+                }
+
+                // Final trim if we somehow got too many
+                if (allQuestions.Count > request.NumberOfQuestions)
+                {
+                    var random = new Random();
+                    allQuestions = allQuestions
+                        .OrderBy(x => random.Next())
+                        .Take(request.NumberOfQuestions)
+                        .ToList();
+                }
+            }
+
+            return allQuestions;
+        }
+        private bool AreSimilarQuestions(string question1, string question2)
+        {
+            if (string.IsNullOrWhiteSpace(question1) || string.IsNullOrWhiteSpace(question2))
+                return false;
+
+            // Simple similarity check - you can make this more sophisticated
+            var words1 = question1.ToLower().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var words2 = question2.ToLower().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            var commonWords = words1.Intersect(words2).Count();
+            var totalWords = Math.Min(words1.Length, words2.Length);
+
+            // Consider similar if more than 60% words are common
+            return totalWords > 0 && (double)commonWords / totalWords > 0.6;
+        }
+
+        // Helper method to generate fallback questions when content is insufficient
+        private async Task<List<QuestionDto>> GenerateFallbackQuestions(GenerateQuestionsRequestDto request, int count = -1)
+        {
+            var questionsToGenerate = count == -1 ? request.NumberOfQuestions : count;
+            var fallbackQuestions = new List<QuestionDto>();
+
+            for (int i = 0; i < questionsToGenerate; i++)
+            {
+                var question = new QuestionDto
+                {
+                    QuestionId = Guid.NewGuid().ToString(),
+                    QuestionText = $"What are the key concepts in {request.Topic} related to {request.Subject}? (Question {i + 1})",
+                    Hint = $"Think about the fundamental principles and applications in {request.Topic}",
+                    Answer = request.QuestionType.ToLower().Contains("short")
+                        ? $"Key concepts in {request.Topic} include fundamental principles and their practical applications in {request.Subject}."
+                        : $"The key concepts in {request.Topic} encompass a comprehensive understanding of fundamental principles, theoretical frameworks, practical applications, and real-world implications. These concepts form the foundation for advanced study in {request.Subject} and provide essential knowledge for understanding complex relationships and processes within this field of study."
+                };
+                fallbackQuestions.Add(question);
+            }
+
+            return await Task.FromResult(fallbackQuestions);
+        }
+        private List<string> ChunkContent(string content, int maxChunkSize = 8000)
+        {
+            var chunks = new List<string>();
+
+            if (string.IsNullOrWhiteSpace(content))
+                return chunks;
+
+            // Split by paragraphs first to maintain context
+            var paragraphs = content.Split(new[] { "\n\n", "\r\n\r\n" }, StringSplitOptions.RemoveEmptyEntries);
+
+            var currentChunk = new StringBuilder();
+
+            foreach (var paragraph in paragraphs)
+            {
+                // If adding this paragraph would exceed chunk size, save current chunk
+                if (currentChunk.Length + paragraph.Length > maxChunkSize && currentChunk.Length > 0)
+                {
+                    chunks.Add(currentChunk.ToString().Trim());
+                    currentChunk.Clear();
+                }
+
+                // If single paragraph is too large, split it by sentences
+                if (paragraph.Length > maxChunkSize)
+                {
+                    
+                    var sentences = paragraph.Split(SentenceDelimiters, StringSplitOptions.RemoveEmptyEntries); // Fix for CS1012
+                    foreach (var sentence in sentences)
+                    {
+                        if (currentChunk.Length + sentence.Length + 2 > maxChunkSize && currentChunk.Length > 0)
+                        {
+                            chunks.Add(currentChunk.ToString().Trim());
+                            currentChunk.Clear();
+                        }
+                        currentChunk.AppendLine(sentence.Trim() + ".");
+                    }
+                }
+                else
+                {
+                    currentChunk.AppendLine(paragraph);
+                }
+            }
+
+            // Add the last chunk if it has content
+            if (currentChunk.Length > 0)
+            {
+                chunks.Add(currentChunk.ToString().Trim());
+            }
+
+            return chunks;
+        }
+
+        private async Task<List<QuestionDto>> GenerateQuestionsFromChunk(
+            OpenAISearchMethod openAiHelper,
+            GenerateQuestionsRequestDto request,
+            string contentChunk,
+            int numberOfQuestions)
+        {
+            var prompt = $@"
+You are an expert question paper generator for school students.
+
+Based on the following content:
+---
+{contentChunk}
+---
+
+Generate {numberOfQuestions} {request.QuestionType} questions for the subject ""{request.Subject}"" on the topic ""{request.Topic}"".
+The questions should be at ""{request.Difficulty}"" difficulty level. 
+For each question, provide:
+- The question text
+- A helpful hint
+- And Answer based on the {request.QuestionType} if it is short need in 2 line if it is long need it in 5 line
+
+Format your response as a JSON array of objects, each with ""QuestionText"" and ""Hint"" properties.
+
+Example:
+[
+  {{ ""QuestionText"": ""Sample question 1..."", ""Hint"": ""Sample hint 1"",""Answer"": ""Answer"" }},
+  {{ ""QuestionText"": ""Sample question 2..."", ""Hint"": ""Sample hint 2"",""Answer"": ""Answer"" }}
+]
+";
+
+            try
+            {
+                string response = await openAiHelper.GetAnswerFromGPTAsync("", prompt);
+
+                // Deserialize the response to List<QuestionDto>
+                var questions = Newtonsoft.Json.JsonConvert.DeserializeObject<List<QuestionDto>>(response)
+                               ?? new List<QuestionDto>();
+
+                // Assign unique IDs
+                foreach (var q in questions)
+                    q.QuestionId = Guid.NewGuid().ToString();
+
+                return questions;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to generate questions from chunk, returning empty list");
+                return new List<QuestionDto>();
+            }
+        }
     }
+
 }
