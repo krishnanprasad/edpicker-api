@@ -9,13 +9,7 @@ using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
-//string openAiApiKey = builder.Configuration["OpenAIKey"];
-string theOpenAIKey = "";
-//builder.Configuration.AddAzureKeyVault(
-//    new Uri("https://edpicker-vault.vault.azure.net/"),
-//    new DefaultAzureCredential()
-//);
-builder.Services.AddSingleton(new OpenAI.OpenAIClient(theOpenAIKey));
+//builder.Services.AddSingleton(new OpenAI.OpenAIClient(theOpenAIKey));
 
 // Add services to the container.
 builder.Services.AddScoped<IJobBoardRepository, JobBoardRepository>();
