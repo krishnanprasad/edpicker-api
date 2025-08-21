@@ -1,5 +1,6 @@
 using System.Text;
 using edpicker_api.Models.Dto;
+using edpicker_api.Models.Enum;
 using edpicker_api.Models.Methods;
 using edpicker_api.Services.Interface;
 using Microsoft.AspNetCore.Hosting;
@@ -230,13 +231,35 @@ namespace edpicker_api.Services
             {
                 var question = new QuestionDto
                 {
-                    QuestionId = Guid.NewGuid().ToString(),
-                    QuestionText = $"What are the key concepts in {request.Topic} related to {request.Subject}? (Question {i + 1})",
-                    Hint = $"Think about the fundamental principles and applications in {request.Topic}",
-                    Answer = request.QuestionType.ToLower().Contains("short")
-                        ? $"Key concepts in {request.Topic} include fundamental principles and their practical applications in {request.Subject}."
-                        : $"The key concepts in {request.Topic} encompass a comprehensive understanding of fundamental principles, theoretical frameworks, practical applications, and real-world implications. These concepts form the foundation for advanced study in {request.Subject} and provide essential knowledge for understanding complex relationships and processes within this field of study."
+                    QuestionId = Guid.NewGuid().ToString()
                 };
+
+                switch (request.QuestionType)
+                {
+                    case QuestionType.MCQ:
+                        question.QuestionText = $"Which option best describes {request.Topic}? (Question {i + 1})";
+                        question.Hint = $"Review the concepts of {request.Topic}";
+                        question.Options = new List<string>
+                        {
+                            $"Option A about {request.Topic}",
+                            $"Option B about {request.Topic}",
+                            $"Option C about {request.Topic}",
+                            $"Option D about {request.Topic}"
+                        };
+                        question.Answer = question.Options[0];
+                        break;
+                    case QuestionType.Short:
+                        question.QuestionText = $"What are the key concepts in {request.Topic} related to {request.Subject}? (Question {i + 1})";
+                        question.Hint = $"Think about the fundamental principles and applications in {request.Topic}";
+                        question.Answer = $"Key concepts in {request.Topic} include fundamental principles and their practical applications in {request.Subject}.";
+                        break;
+                    default:
+                        question.QuestionText = $"Explain the key concepts in {request.Topic} related to {request.Subject}. (Question {i + 1})";
+                        question.Hint = $"Provide a detailed explanation covering various aspects of {request.Topic}";
+                        question.Answer = $"The key concepts in {request.Topic} encompass a comprehensive understanding of fundamental principles, theoretical frameworks, practical applications, and real-world implications. These concepts form the foundation for advanced study in {request.Subject} and provide essential knowledge for understanding complex relationships and processes within this field of study.";
+                        break;
+                }
+
                 fallbackQuestions.Add(question);
             }
 
@@ -299,43 +322,61 @@ namespace edpicker_api.Services
             string contentChunk,
             int numberOfQuestions)
         {
-            var prompt = $@"
-You are an expert question paper generator for school students.
+            var promptBuilder = new StringBuilder();
+            promptBuilder.AppendLine("You are an expert question paper generator for school students.");
+            promptBuilder.AppendLine();
+            promptBuilder.AppendLine("Based on the following content:");
+            promptBuilder.AppendLine("---");
+            promptBuilder.AppendLine(contentChunk);
+            promptBuilder.AppendLine("---");
+            promptBuilder.AppendLine();
+            promptBuilder.AppendLine($"Generate {numberOfQuestions} {request.QuestionType} questions for the subject \"{request.Subject}\" on the topic \"{request.Topic}\".");
+            promptBuilder.AppendLine($"The questions should be at \"{request.Difficulty}\" difficulty level.");
 
-Based on the following content:
----
-{contentChunk}
----
+            if (request.QuestionType == QuestionType.MCQ)
+            {
+                promptBuilder.AppendLine("For each question, provide:");
+                promptBuilder.AppendLine("- The question text");
+                promptBuilder.AppendLine("- Four options");
+                promptBuilder.AppendLine("- The correct answer (one of the options)");
+                promptBuilder.AppendLine("Format your response as a JSON array of objects with \"QuestionText\", \"Options\" (array of four strings), and \"Answer\" (the correct option text).");
+                promptBuilder.AppendLine("Example:");
+                promptBuilder.AppendLine("[");
+                promptBuilder.AppendLine("  { \"QuestionText\": \"Sample question?\", \"Options\": [\"Option 1\", \"Option 2\", \"Option 3\", \"Option 4\"], \"Answer\": \"Option 1\" }");
+                promptBuilder.AppendLine("]");
+            }
+            else
+            {
+                promptBuilder.AppendLine("For each question, provide:");
+                promptBuilder.AppendLine("- The question text");
+                promptBuilder.AppendLine("- A helpful hint");
+                promptBuilder.AppendLine("- An answer based on the question type (2 lines for short answers, 5 lines for long answers)");
+                promptBuilder.AppendLine("Format your response as a JSON array of objects, each with \"QuestionText\", \"Hint\", and \"Answer\" properties.");
+                promptBuilder.AppendLine("Example:");
+                promptBuilder.AppendLine("[");
+                promptBuilder.AppendLine("  { \"QuestionText\": \"Sample question 1...\", \"Hint\": \"Sample hint 1\", \"Answer\": \"Answer\" },");
+                promptBuilder.AppendLine("  { \"QuestionText\": \"Sample question 2...\", \"Hint\": \"Sample hint 2\", \"Answer\": \"Answer\" }");
+                promptBuilder.AppendLine("]");
+            }
 
-Generate {numberOfQuestions} {request.QuestionType} questions for the subject ""{request.Subject}"" on the topic ""{request.Topic}"".
-The questions should be at ""{request.Difficulty}"" difficulty level. 
-For each question, provide:
-- The question text
-- A helpful hint
-- And Answer based on the {request.QuestionType} if it is short need in 2 line if it is long need it in 5 line
-
-Format your response as a JSON array of objects, each with ""QuestionText"" and ""Hint"" properties.
-
-Example:
-[
-  {{ ""QuestionText"": ""Sample question 1..."", ""Hint"": ""Sample hint 1"",""Answer"": ""Answer"" }},
-  {{ ""QuestionText"": ""Sample question 2..."", ""Hint"": ""Sample hint 2"",""Answer"": ""Answer"" }}
-]
-";
+            var prompt = promptBuilder.ToString();
 
             try
             {
-                string response = await openAiHelper.GetAnswerFromGPTAsync("", prompt);
+                string response = await openAiHelper.GetAnswerFromGPTAsync(string.Empty, prompt);
 
-                // Deserialize the response to List<QuestionDto>
                 var questions = Newtonsoft.Json.JsonConvert.DeserializeObject<List<QuestionDto>>(response)
                                ?? new List<QuestionDto>();
 
-                // Assign unique IDs
                 foreach (var q in questions)
                     q.QuestionId = Guid.NewGuid().ToString();
 
                 return questions;
+            }
+            catch (Newtonsoft.Json.JsonException jsonEx)
+            {
+                _logger.LogError(jsonEx, "Failed to deserialize questions from OpenAI response");
+                return new List<QuestionDto>();
             }
             catch (Exception ex)
             {
