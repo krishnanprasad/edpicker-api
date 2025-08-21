@@ -3,13 +3,16 @@ using Azure.Identity;
 using edpicker_api.Models;
 using edpicker_api.Services;
 using edpicker_api.Services.Interface;
+using OpenAI;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
-//builder.Services.AddSingleton(new OpenAI.OpenAIClient(theOpenAIKey));
+// Register OpenAI client using API key from configuration
+var openAiKey = builder.Configuration["OpenAIKey"];
+builder.Services.AddSingleton(_ => new OpenAIClient(openAiKey));
 
 // Add services to the container.
 builder.Services.AddScoped<IJobBoardRepository, JobBoardRepository>();

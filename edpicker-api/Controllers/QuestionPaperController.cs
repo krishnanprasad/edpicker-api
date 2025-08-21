@@ -34,6 +34,23 @@ namespace edpicker_api.Controllers
             }
         }
 
+        [HttpPost("generate-questions-v2")]
+        public async Task<IActionResult> GenerateQuestionsV2([FromBody] GenerateQuestionsRequestDto request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+            try
+            {
+                var questions = await _repository.GenerateQuestionsWithResponsesAsync(request);
+                return Ok(questions);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to generate questions (v2)");
+                return StatusCode(500, "Error generating questions");
+            }
+        }
+
         [HttpPost("refresh-question")]
         public async Task<IActionResult> RefreshQuestion([FromBody] RefreshQuestionRequestDto request)
         {
