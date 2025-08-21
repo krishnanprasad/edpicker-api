@@ -7,7 +7,13 @@ namespace edpicker_api.Models.Dto
     public class GenerateQuestionsRequestDto
     {
         [Required]
+        public string Class { get; set; } = string.Empty;
+
+        [Required]
         public string Subject { get; set; } = string.Empty;
+
+        [Required]
+        public string Chapter { get; set; } = string.Empty;
 
         [Required]
         public string Topic { get; set; } = string.Empty;
