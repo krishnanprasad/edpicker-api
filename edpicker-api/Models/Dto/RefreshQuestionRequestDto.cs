@@ -16,6 +16,8 @@ namespace edpicker_api.Models.Dto
         [JsonConverter(typeof(JsonStringEnumConverter))]
         public QuestionType QuestionType { get; set; }
 
+        public string Section { get; set; } = "any";
+
         [Required]
         public string Difficulty { get; set; } = string.Empty;
 

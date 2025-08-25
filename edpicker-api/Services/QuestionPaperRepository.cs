@@ -1,4 +1,5 @@
 using System.Text;
+using System.Linq;
 using edpicker_api.Models.Dto;
 using edpicker_api.Models.Enum;
 using edpicker_api.Models.Methods;
@@ -53,9 +54,17 @@ namespace edpicker_api.Services
                 // Get your OpenAI API key from configuration/environment
                 string openAIApiKey = Environment.GetEnvironmentVariable("OpenAIKey") ?? "";
 
-                var questions = await GenerateQuestionsWithOpenAIAsync(request, content, openAIApiKey);
+                var allQuestions = new List<QuestionDto>();
+                foreach (var qt in request.QuestionTypes)
+                {
+                    request.QuestionType = qt.Type;
+                    request.NumberOfQuestions = qt.NumberOfQuestions;
+                    request.Section = qt.Section;
+                    var result = await GenerateQuestionsWithOpenAIAsync(request, content, openAIApiKey);
+                    allQuestions.AddRange(result);
+                }
 
-                return questions;
+                return allQuestions;
             }
             catch (Exception ex)
             {
@@ -72,88 +81,107 @@ namespace edpicker_api.Services
                     throw new ArgumentException($"No resources mapped for class {request.Class}, subject {request.Subject}, chapter {request.Chapter}");
 
                 var (vectorStoreId, fileId) = resources;
-
                 var responsesClient = _openAIClient.GetResponsesClient();
+                var allQuestions = new List<QuestionDto>();
 
-                var promptBuilder = new StringBuilder();
-                promptBuilder.Append($"Create {request.NumberOfQuestions} {request.QuestionType} questions for Class {request.Class} {request.Subject} Chapter {request.Chapter} on topic {request.Topic}. ");
-                promptBuilder.Append($"Difficulty: {request.Difficulty}. Use only the provided textbook chapters as the source. Avoid verbatim copying; keep questions unique and syllabus-aligned. ");
+                foreach (var qt in request.QuestionTypes)
+                {
+                    request.QuestionType = qt.Type;
+                    request.NumberOfQuestions = qt.NumberOfQuestions;
+                    request.Section = qt.Section;
 
-                if (request.QuestionType == QuestionType.MCQ)
-                {
-                    promptBuilder.Append("For each question, provide four options and the index of the correct option.");
-                }
-                else if (request.QuestionType == QuestionType.Short)
-                {
-                    promptBuilder.Append("Each answer should be about two sentences long and include a brief hint.");
-                }
-                else
-                {
-                    promptBuilder.Append("Each answer should be about five sentences long and include a helpful hint.");
-                }
+                    var promptBuilder = new StringBuilder();
+                    promptBuilder.Append($"Create {request.NumberOfQuestions} {request.QuestionType} questions for Class {request.Class} {request.Subject} Chapter {request.Chapter} on topic {request.Topic}. ");
+                    if (!string.Equals(request.Section, "any", StringComparison.OrdinalIgnoreCase))
+                        promptBuilder.Append($"Section: {request.Section}. ");
+                    promptBuilder.Append($"Difficulty: {request.Difficulty}. Use only the provided textbook chapters as the source. Avoid verbatim copying; keep questions unique and syllabus-aligned. ");
 
-                var schema = new
-                {
-                    type = "object",
-                    properties = new
+                    if (request.QuestionType == QuestionType.MCQ)
                     {
-                        items = new
+                        promptBuilder.Append("For each question, provide four options and the index of the correct option.");
+                    }
+                    else if (request.QuestionType == QuestionType.TwoMark)
+                    {
+                        promptBuilder.Append("Each answer should be about two sentences long and include a brief hint.");
+                    }
+                    else if (request.QuestionType == QuestionType.ThreeMark)
+                    {
+                        promptBuilder.Append("Each answer should be about three sentences long and include a brief hint.");
+                    }
+                    else if (request.QuestionType == QuestionType.FourMark)
+                    {
+                        promptBuilder.Append("Each answer should be about four sentences long and include a helpful hint.");
+                    }
+                    else
+                    {
+                        promptBuilder.Append("Each answer should be about five sentences long and include a helpful hint.");
+                    }
+
+                    var schema = new
+                    {
+                        type = "object",
+                        properties = new
                         {
-                            type = "array",
                             items = new
                             {
-                                type = "object",
-                                properties = new
+                                type = "array",
+                                items = new
                                 {
-                                    QuestionText = new { type = "string" },
-                                    Options = new
+                                    type = "object",
+                                    properties = new
                                     {
-                                        type = "array",
-                                        items = new { type = "string" },
-                                        minItems = 4,
-                                        maxItems = 4
+                                        QuestionText = new { type = "string" },
+                                        Options = new
+                                        {
+                                            type = "array",
+                                            items = new { type = "string" },
+                                            minItems = 4,
+                                            maxItems = 4
+                                        },
+                                        Answer = new { type = "string" },
+                                        Hint = new { type = "string" }
                                     },
-                                    Answer = new { type = "string" },
-                                    Hint = new { type = "string" }
-                                },
-                                required = request.QuestionType == QuestionType.MCQ
-                                    ? new[] { "QuestionText", "Options", "Answer" }
-                                    : new[] { "QuestionText", "Answer", "Hint" }
+                                    required = request.QuestionType == QuestionType.MCQ
+                                        ? new[] { "QuestionText", "Options", "Answer" }
+                                        : new[] { "QuestionText", "Answer", "Hint" }
+                                }
                             }
-                        }
-                    },
-                    required = new[] { "items" }
-                };
+                        },
+                        required = new[] { "items" }
+                    };
 
-                var response = await responsesClient.CreateResponseAsync(new ResponseCreationOptions
-                {
-                    Model = "gpt-4o-mini",
-                    Input = promptBuilder.ToString(),
-                    Tools = { new FileSearchToolDefinition() },
-                    ToolResources = new()
+                    var response = await responsesClient.CreateResponseAsync(new ResponseCreationOptions
                     {
-                        FileSearch = new()
+                        Model = "gpt-4o-mini",
+                        Input = promptBuilder.ToString(),
+                        Tools = { new FileSearchToolDefinition() },
+                        ToolResources = new()
                         {
-                            VectorStoreIds = { vectorStoreId },
-                            FileIds = { fileId }
-                        }
-                    },
-                    ResponseFormat = ResponseFormat.CreateJsonSchema(
-                        name: "question_set",
-                        schema: schema,
-                        strict: true)
-                });
+                            FileSearch = new()
+                            {
+                                VectorStoreIds = { vectorStoreId },
+                                FileIds = { fileId }
+                            }
+                        },
+                        ResponseFormat = ResponseFormat.CreateJsonSchema(
+                            name: "question_set",
+                            schema: schema,
+                            strict: true)
+                    });
 
-                var json = response.Output[0].Content[0].Text;
-                var questions = JsonConvert.DeserializeObject<List<QuestionDto>>(json) ?? new List<QuestionDto>();
+                    var json = response.Output[0].Content[0].Text;
+                    var questions = JsonConvert.DeserializeObject<List<QuestionDto>>(json) ?? new List<QuestionDto>();
 
-                foreach (var q in questions)
-                {
-                    if (string.IsNullOrEmpty(q.QuestionId))
-                        q.QuestionId = Guid.NewGuid().ToString();
+                    foreach (var q in questions)
+                    {
+                        if (string.IsNullOrEmpty(q.QuestionId))
+                            q.QuestionId = Guid.NewGuid().ToString();
+                    }
+
+                    allQuestions.AddRange(questions);
                 }
 
-                return questions;
+                return allQuestions;
             }
             catch (Exception ex)
             {
@@ -358,7 +386,8 @@ namespace edpicker_api.Services
                         };
                         question.Answer = question.Options[0];
                         break;
-                    case QuestionType.Short:
+                    case QuestionType.TwoMark:
+                    case QuestionType.ThreeMark:
                         question.QuestionText = $"What are the key concepts in {request.Topic} related to {request.Subject}? (Question {i + 1})";
                         question.Hint = $"Think about the fundamental principles and applications in {request.Topic}";
                         question.Answer = $"Key concepts in {request.Topic} include fundamental principles and their practical applications in {request.Subject}.";
@@ -441,6 +470,8 @@ namespace edpicker_api.Services
             promptBuilder.AppendLine("---");
             promptBuilder.AppendLine();
             promptBuilder.AppendLine($"Generate {numberOfQuestions} {request.QuestionType} questions for the subject \"{request.Subject}\" on the topic \"{request.Topic}\".");
+            if (!string.Equals(request.Section, "any", StringComparison.OrdinalIgnoreCase))
+                promptBuilder.AppendLine($"Section: {request.Section}.");
             promptBuilder.AppendLine($"The questions should be at \"{request.Difficulty}\" difficulty level.");
 
             if (request.QuestionType == QuestionType.MCQ)
@@ -457,10 +488,18 @@ namespace edpicker_api.Services
             }
             else
             {
+                int sentences = request.QuestionType switch
+                {
+                    QuestionType.TwoMark => 2,
+                    QuestionType.ThreeMark => 3,
+                    QuestionType.FourMark => 4,
+                    QuestionType.FiveMark => 5,
+                    _ => 2
+                };
                 promptBuilder.AppendLine("For each question, provide:");
                 promptBuilder.AppendLine("- The question text");
                 promptBuilder.AppendLine("- A helpful hint");
-                promptBuilder.AppendLine("- An answer based on the question type (2 lines for short answers, 5 lines for long answers)");
+                promptBuilder.AppendLine($"- An answer about {sentences} sentences long");
                 promptBuilder.AppendLine("Format your response as a JSON array of objects, each with \"QuestionText\", \"Hint\", and \"Answer\" properties.");
                 promptBuilder.AppendLine("Example:");
                 promptBuilder.AppendLine("[");
