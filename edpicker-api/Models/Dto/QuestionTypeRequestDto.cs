@@ -8,6 +8,7 @@ namespace edpicker_api.Models.Dto
     {
         [Required]
         [JsonConverter(typeof(JsonStringEnumConverter))]
+        [JsonPropertyName("questionType")] // This matches your JSON
         public QuestionType Type { get; set; }
 
         public string Section { get; set; } = "any";

@@ -7,30 +7,29 @@ namespace edpicker_api.Models.Dto
 {
     public class GenerateQuestionsRequestDto
     {
-        [Required]
-        public string Class { get; set; } = string.Empty;
+        // Make Class and Chapter optional if you don't want to provide them
+        public string Class { get; set; } = "12"; // Default value
 
         [Required]
         public string Subject { get; set; } = string.Empty;
 
-        [Required]
-        public string Chapter { get; set; } = string.Empty;
+        public string Chapter { get; set; } = string.Empty; // Make optional
 
         [Required]
         public string Topic { get; set; } = string.Empty;
 
         [Required]
-        [JsonPropertyName("questionType")]
+        [JsonPropertyName("questionTypes")] // This matches your JSON
         public List<QuestionTypeRequestDto> QuestionTypes { get; set; } = new();
 
         [Required]
         public string Difficulty { get; set; } = string.Empty;
 
-        [JsonIgnore]
-        public QuestionType QuestionType { get; set; }
+        // Optional - for backward compatibility
+        public int NumberOfQuestions { get; set; }
 
         [JsonIgnore]
-        public int NumberOfQuestions { get; set; }
+        public QuestionType QuestionType { get; set; }
 
         [JsonIgnore]
         public string Section { get; set; } = "any";

@@ -56,10 +56,28 @@ namespace edpicker_api.Services
                 var allQuestions = new List<QuestionDto>();
                 foreach (var qt in request.QuestionTypes)
                 {
-                    request.QuestionType = qt.Type;
-                    request.NumberOfQuestions = qt.NumberOfQuestions;
-                    request.Section = qt.Section;
-                    var result = await GenerateQuestionsWithOpenAIAsync(request, content, openAIApiKey);
+                    var modifiedRequest = new GenerateQuestionsRequestDto
+                    {
+                        Class = request.Class,
+                        Subject = request.Subject,
+                        Chapter = request.Chapter,
+                        Topic = request.Topic,
+                        QuestionTypes = request.QuestionTypes,
+                        Difficulty = request.Difficulty,
+                        QuestionType = qt.Type,
+                        NumberOfQuestions = qt.NumberOfQuestions,
+                        Section = qt.Section
+                    };
+
+                    var result = await GenerateQuestionsWithOpenAIAsync(modifiedRequest, content, openAIApiKey);
+
+                    // Set questionType and section for each question
+                    foreach (var question in result)
+                    {
+                        question.QuestionType = qt.Type;
+                        question.Section = qt.Section;
+                    }
+
                     allQuestions.AddRange(result);
                 }
 
@@ -80,101 +98,93 @@ namespace edpicker_api.Services
                     throw new ArgumentException($"No resources mapped for class {request.Class}, subject {request.Subject}, chapter {request.Chapter}");
 
                 var (vectorStoreId, fileId) = resources;
-                var responsesClient = _openAIClient.GetResponsesClient();
+                var chatClient = _openAIClient.GetChatClient("gpt-4o-mini");
                 var allQuestions = new List<QuestionDto>();
 
                 foreach (var qt in request.QuestionTypes)
                 {
-                    request.QuestionType = qt.Type;
-                    request.NumberOfQuestions = qt.NumberOfQuestions;
-                    request.Section = qt.Section;
-
                     var promptBuilder = new StringBuilder();
-                    promptBuilder.Append($"Create {request.NumberOfQuestions} {request.QuestionType} questions for Class {request.Class} {request.Subject} Chapter {request.Chapter} on topic {request.Topic}. ");
-                    if (!string.Equals(request.Section, "any", StringComparison.OrdinalIgnoreCase))
-                        promptBuilder.Append($"Section: {request.Section}. ");
+                    promptBuilder.Append($"Create {qt.NumberOfQuestions} {qt.Type} questions for Class {request.Class} {request.Subject} Chapter {request.Chapter} on topic {request.Topic}. ");
+                    if (!string.Equals(qt.Section, "any", StringComparison.OrdinalIgnoreCase))
+                        promptBuilder.Append($"Section: {qt.Section}. ");
                     promptBuilder.Append($"Difficulty: {request.Difficulty}. Use only the provided textbook chapters as the source. Avoid verbatim copying; keep questions unique and syllabus-aligned. ");
 
-                    if (request.QuestionType == QuestionType.MCQ)
+                    if (qt.Type == QuestionType.MCQ)
                     {
-                        promptBuilder.Append("For each question, provide four options and the index of the correct option.");
+                        promptBuilder.Append("For each question, provide four options and the correct answer as one of the options. ");
+                        promptBuilder.Append("Format your response as a JSON object with a 'questions' property containing an array of objects with 'QuestionText', 'Options' (array of 4 strings), 'Answer' (the correct option text), 'QuestionType', and 'Section'. ");
+                        promptBuilder.Append($"Example format: {{\"questions\": [{{\"QuestionText\": \"Sample question?\", \"Options\": [\"Option 1\", \"Option 2\", \"Option 3\", \"Option 4\"], \"Answer\": \"Option 1\", \"QuestionType\": \"{qt.Type}\", \"Section\": \"{qt.Section}\"}}]}}");
                     }
-                    else if (request.QuestionType == QuestionType.TwoMark)
+                    else if (qt.Type == QuestionType.TwoMark)
                     {
-                        promptBuilder.Append("Each answer should be about two sentences long and include a brief hint.");
+                        promptBuilder.Append("Each answer should be about two sentences long and include a brief hint. ");
+                        promptBuilder.Append("Format your response as a JSON object with a 'questions' property containing an array of objects with 'QuestionText', 'Answer', 'Hint', 'QuestionType', and 'Section'. ");
+                        promptBuilder.Append($"Example format: {{\"questions\": [{{\"QuestionText\": \"Sample question?\", \"Answer\": \"Sample answer\", \"Hint\": \"Sample hint\", \"QuestionType\": \"{qt.Type}\", \"Section\": \"{qt.Section}\"}}]}}");
                     }
-                    else if (request.QuestionType == QuestionType.ThreeMark)
+                    else if (qt.Type == QuestionType.ThreeMark)
                     {
-                        promptBuilder.Append("Each answer should be about three sentences long and include a brief hint.");
+                        promptBuilder.Append("Each answer should be about three sentences long and include a brief hint. ");
+                        promptBuilder.Append("Format your response as a JSON object with a 'questions' property containing an array of objects with 'QuestionText', 'Answer', 'Hint', 'QuestionType', and 'Section'. ");
+                        promptBuilder.Append($"Example format: {{\"questions\": [{{\"QuestionText\": \"Sample question?\", \"Answer\": \"Sample answer\", \"Hint\": \"Sample hint\", \"QuestionType\": \"{qt.Type}\", \"Section\": \"{qt.Section}\"}}]}}");
                     }
-                    else if (request.QuestionType == QuestionType.FourMark)
+                    else if (qt.Type == QuestionType.FourMark)
                     {
-                        promptBuilder.Append("Each answer should be about four sentences long and include a helpful hint.");
+                        promptBuilder.Append("Each answer should be about four sentences long and include a helpful hint. ");
+                        promptBuilder.Append("Format your response as a JSON object with a 'questions' property containing an array of objects with 'QuestionText', 'Answer', 'Hint', 'QuestionType', and 'Section'. ");
+                        promptBuilder.Append($"Example format: {{\"questions\": [{{\"QuestionText\": \"Sample question?\", \"Answer\": \"Sample answer\", \"Hint\": \"Sample hint\", \"QuestionType\": \"{qt.Type}\", \"Section\": \"{qt.Section}\"}}]}}");
                     }
                     else
                     {
-                        promptBuilder.Append("Each answer should be about five sentences long and include a helpful hint.");
+                        promptBuilder.Append("Each answer should be about five sentences long and include a helpful hint. ");
+                        promptBuilder.Append("Format your response as a JSON object with a 'questions' property containing an array of objects with 'QuestionText', 'Answer', 'Hint', 'QuestionType', and 'Section'. ");
+                        promptBuilder.Append($"Example format: {{\"questions\": [{{\"QuestionText\": \"Sample question?\", \"Answer\": \"Sample answer\", \"Hint\": \"Sample hint\", \"QuestionType\": \"{qt.Type}\", \"Section\": \"{qt.Section}\"}}]}}");
                     }
 
-                    var schema = new
+                    var messages = new List<ChatMessage>
                     {
-                        type = "object",
-                        properties = new
-                        {
-                            items = new
-                            {
-                                type = "array",
-                                items = new
-                                {
-                                    type = "object",
-                                    properties = new
-                                    {
-                                        QuestionText = new { type = "string" },
-                                        Options = new
-                                        {
-                                            type = "array",
-                                            items = new { type = "string" },
-                                            minItems = 4,
-                                            maxItems = 4
-                                        },
-                                        Answer = new { type = "string" },
-                                        Hint = new { type = "string" }
-                                    },
-                                    required = request.QuestionType == QuestionType.MCQ
-                                        ? new[] { "QuestionText", "Options", "Answer" }
-                                        : new[] { "QuestionText", "Answer", "Hint" }
-                                }
-                            }
-                        },
-                        required = new[] { "items" }
+                        new SystemChatMessage("You are an expert question paper generator for school students. Always respond with valid JSON format containing a 'questions' array. Include QuestionType and Section in each question object."),
+                        new UserChatMessage(promptBuilder.ToString())
                     };
 
-                    var response = await responsesClient.CreateResponseAsync(new ResponseCreationOptions
+                    var chatCompletion = await chatClient.CompleteChatAsync(messages, new ChatCompletionOptions
                     {
-                        Model = "gpt-4o-mini",
-                        Input = promptBuilder.ToString(),
-                        Tools = { new FileSearchToolDefinition() },
-                        ToolResources = new()
-                        {
-                            FileSearch = new()
-                            {
-                                VectorStoreIds = { vectorStoreId },
-                                FileIds = { fileId }
-                            }
-                        },
-                        ResponseFormat = ResponseFormat.CreateJsonSchema(
-                            name: "question_set",
-                            schema: schema,
-                            strict: true)
+                        ResponseFormat = ChatResponseFormat.CreateJsonObjectFormat(),
+                        Temperature = 0.7f
                     });
 
-                    var json = response.Output[0].Content[0].Text;
-                    var questions = JsonConvert.DeserializeObject<List<QuestionDto>>(json) ?? new List<QuestionDto>();
+                    var responseContent = chatCompletion.Value.Content[0].Text;
+
+                    // Parse the response
+                    List<QuestionDto> questions;
+                    try
+                    {
+                        var wrapper = JsonConvert.DeserializeObject<dynamic>(responseContent);
+                        if (wrapper?.questions != null)
+                        {
+                            questions = JsonConvert.DeserializeObject<List<QuestionDto>>(wrapper.questions.ToString()) ?? new List<QuestionDto>();
+                        }
+                        else
+                        {
+                            // Fallback: try direct array deserialization
+                            questions = JsonConvert.DeserializeObject<List<QuestionDto>>(responseContent) ?? new List<QuestionDto>();
+                        }
+                    }
+                    catch (JsonException ex)
+                    {
+                        _logger.LogError(ex, "JSON parsing failed. Response: {Response}", responseContent);
+                        questions = new List<QuestionDto>();
+                    }
 
                     foreach (var q in questions)
                     {
                         if (string.IsNullOrEmpty(q.QuestionId))
                             q.QuestionId = Guid.NewGuid().ToString();
+
+                        // Ensure questionType and section are set even if not returned by AI
+                        if (q.QuestionType == null)
+                            q.QuestionType = qt.Type;
+                        if (string.IsNullOrEmpty(q.Section))
+                            q.Section = qt.Section;
                     }
 
                     allQuestions.AddRange(questions);
@@ -184,10 +194,11 @@ namespace edpicker_api.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error generating questions via responses API");
+                _logger.LogError(ex, "Error generating questions via OpenAI chat API");
                 throw;
             }
         }
+
         public async Task<QuestionDto> RefreshQuestionAsync(RefreshQuestionRequestDto request)
         {
             try
@@ -197,7 +208,9 @@ namespace edpicker_api.Services
                 {
                     QuestionId = Guid.NewGuid().ToString(),
                     QuestionText = $"Refreshed question for {request.Topic}",
-                    Hint = "Sample hint"
+                    Hint = "Sample hint",
+                    QuestionType = request.QuestionType,
+                    Section = request.Section
                 };
                 return await Task.FromResult(question);
             }
@@ -246,6 +259,7 @@ namespace edpicker_api.Services
             }
             return sb.ToString();
         }
+
         private async Task<List<QuestionDto>> GenerateQuestionsWithOpenAIAsync(GenerateQuestionsRequestDto request, string content, string openAIApiKey)
         {
             var openAiHelper = new OpenAISearchMethod(openAIApiKey);
@@ -282,7 +296,7 @@ namespace edpicker_api.Services
                 remainingQuestions -= questionsForThisChunk;
             }
 
-            // **NEW LOGIC: Ensure exact count**
+            // **Ensure exact count**
             if (allQuestions.Count > request.NumberOfQuestions)
             {
                 // Too many questions - randomly select the exact number
@@ -342,6 +356,7 @@ namespace edpicker_api.Services
 
             return allQuestions;
         }
+
         private bool AreSimilarQuestions(string question1, string question2)
         {
             if (string.IsNullOrWhiteSpace(question1) || string.IsNullOrWhiteSpace(question2))
@@ -368,7 +383,9 @@ namespace edpicker_api.Services
             {
                 var question = new QuestionDto
                 {
-                    QuestionId = Guid.NewGuid().ToString()
+                    QuestionId = Guid.NewGuid().ToString(),
+                    QuestionType = request.QuestionType,
+                    Section = request.Section
                 };
 
                 switch (request.QuestionType)
@@ -403,6 +420,7 @@ namespace edpicker_api.Services
 
             return await Task.FromResult(fallbackQuestions);
         }
+
         private List<string> ChunkContent(string content, int maxChunkSize = 8000)
         {
             var chunks = new List<string>();
@@ -427,8 +445,8 @@ namespace edpicker_api.Services
                 // If single paragraph is too large, split it by sentences
                 if (paragraph.Length > maxChunkSize)
                 {
-                    
-                    var sentences = paragraph.Split(SentenceDelimiters, StringSplitOptions.RemoveEmptyEntries); // Fix for CS1012
+
+                    var sentences = paragraph.Split(SentenceDelimiters, StringSplitOptions.RemoveEmptyEntries);
                     foreach (var sentence in sentences)
                     {
                         if (currentChunk.Length + sentence.Length + 2 > maxChunkSize && currentChunk.Length > 0)
@@ -479,10 +497,10 @@ namespace edpicker_api.Services
                 promptBuilder.AppendLine("- The question text");
                 promptBuilder.AppendLine("- Four options");
                 promptBuilder.AppendLine("- The correct answer (one of the options)");
-                promptBuilder.AppendLine("Format your response as a JSON array of objects with \"QuestionText\", \"Options\" (array of four strings), and \"Answer\" (the correct option text).");
+                promptBuilder.AppendLine($"Format your response as a JSON array of objects with \"QuestionText\", \"Options\" (array of four strings), \"Answer\" (the correct option text), \"QuestionType\": \"{request.QuestionType}\", and \"Section\": \"{request.Section}\".");
                 promptBuilder.AppendLine("Example:");
                 promptBuilder.AppendLine("[");
-                promptBuilder.AppendLine("  { \"QuestionText\": \"Sample question?\", \"Options\": [\"Option 1\", \"Option 2\", \"Option 3\", \"Option 4\"], \"Answer\": \"Option 1\" }");
+                promptBuilder.AppendLine($"  {{ \"QuestionText\": \"Sample question?\", \"Options\": [\"Option 1\", \"Option 2\", \"Option 3\", \"Option 4\"], \"Answer\": \"Option 1\", \"QuestionType\": \"{request.QuestionType}\", \"Section\": \"{request.Section}\" }}");
                 promptBuilder.AppendLine("]");
             }
             else
@@ -499,11 +517,11 @@ namespace edpicker_api.Services
                 promptBuilder.AppendLine("- The question text");
                 promptBuilder.AppendLine("- A helpful hint");
                 promptBuilder.AppendLine($"- An answer about {sentences} sentences long");
-                promptBuilder.AppendLine("Format your response as a JSON array of objects, each with \"QuestionText\", \"Hint\", and \"Answer\" properties.");
+                promptBuilder.AppendLine($"Format your response as a JSON array of objects, each with \"QuestionText\", \"Hint\", \"Answer\", \"QuestionType\": \"{request.QuestionType}\", and \"Section\": \"{request.Section}\".");
                 promptBuilder.AppendLine("Example:");
                 promptBuilder.AppendLine("[");
-                promptBuilder.AppendLine("  { \"QuestionText\": \"Sample question 1...\", \"Hint\": \"Sample hint 1\", \"Answer\": \"Answer\" },");
-                promptBuilder.AppendLine("  { \"QuestionText\": \"Sample question 2...\", \"Hint\": \"Sample hint 2\", \"Answer\": \"Answer\" }");
+                promptBuilder.AppendLine($"  {{ \"QuestionText\": \"Sample question 1...\", \"Hint\": \"Sample hint 1\", \"Answer\": \"Answer\", \"QuestionType\": \"{request.QuestionType}\", \"Section\": \"{request.Section}\" }},");
+                promptBuilder.AppendLine($"  {{ \"QuestionText\": \"Sample question 2...\", \"Hint\": \"Sample hint 2\", \"Answer\": \"Answer\", \"QuestionType\": \"{request.QuestionType}\", \"Section\": \"{request.Section}\" }}");
                 promptBuilder.AppendLine("]");
             }
 
@@ -517,7 +535,14 @@ namespace edpicker_api.Services
                                ?? new List<QuestionDto>();
 
                 foreach (var q in questions)
+                {
                     q.QuestionId = Guid.NewGuid().ToString();
+                    // Ensure questionType and section are set
+                    if (q.QuestionType == null)
+                        q.QuestionType = request.QuestionType;
+                    if (string.IsNullOrEmpty(q.Section))
+                        q.Section = request.Section;
+                }
 
                 return questions;
             }
@@ -533,5 +558,4 @@ namespace edpicker_api.Services
             }
         }
     }
-
 }
