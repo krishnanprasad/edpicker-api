@@ -7,8 +7,7 @@ using Microsoft.AspNetCore.Hosting;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.Content;
 using OpenAI;
-using OpenAI.Assistants;
-using OpenAI.Responses;
+using OpenAI.Chat;
 using Newtonsoft.Json;
 
 namespace edpicker_api.Services
@@ -24,7 +23,7 @@ namespace edpicker_api.Services
         // Temporary in-memory mapping; replace with SQL-backed storage later
         private readonly Dictionary<(string Class, string Subject, string Chapter), (string VectorStoreId, string FileId)> _resourceMap = new()
         {
-            { ("9", "Science", "Heat"), ("vs_school42_cls9_science_2025", "file_heat_001") }
+            { ("12", "Physics", "ELECTRIC CHARGES AND FIELDS"), ("vs_68a5899b87a48191a97a4a0d2919eca0", "file-8ZvmWMYWF4x5ujvKLJ7fi5") }
         };
 
         public QuestionPaperRepository(IWebHostEnvironment env, ILogger<QuestionPaperRepository> logger, IConfiguration configuration, OpenAIClient openAIClient)
@@ -49,7 +48,7 @@ namespace edpicker_api.Services
                     sb.AppendLine(ReadPdfContent(pdfPath));
                 }
                 string content = sb.ToString();
-                string openAIApiKeyTest = _configuration["OpenAIKey"];
+                string? openAIApiKeyTest = _configuration["OpenAIKey"];
                 // Get your OpenAI API key from configuration/environment
                 string openAIApiKey = Environment.GetEnvironmentVariable("OpenAIKey") ?? "";
 
@@ -73,7 +72,7 @@ namespace edpicker_api.Services
 
                 var (vectorStoreId, fileId) = resources;
 
-                var responsesClient = _openAIClient.GetResponsesClient();
+                var chatClient = _openAIClient.GetChatClient("gpt-4o-mini");
 
                 var promptBuilder = new StringBuilder();
                 promptBuilder.Append($"Create {request.NumberOfQuestions} {request.QuestionType} questions for Class {request.Class} {request.Subject} Chapter {request.Chapter} on topic {request.Topic}. ");
@@ -81,71 +80,65 @@ namespace edpicker_api.Services
 
                 if (request.QuestionType == QuestionType.MCQ)
                 {
-                    promptBuilder.Append("For each question, provide four options and the index of the correct option.");
+                    promptBuilder.Append("For each question, provide four options and the correct answer as one of the options. ");
+                    promptBuilder.Append("Format your response as a JSON array with objects containing 'QuestionText', 'Options' (array of 4 strings), and 'Answer' (the correct option text). ");
                 }
                 else if (request.QuestionType == QuestionType.Short)
                 {
-                    promptBuilder.Append("Each answer should be about two sentences long and include a brief hint.");
+                    promptBuilder.Append("Each answer should be about two sentences long and include a brief hint. ");
+                    promptBuilder.Append("Format your response as a JSON array with objects containing 'QuestionText', 'Answer', and 'Hint'. ");
                 }
                 else
                 {
-                    promptBuilder.Append("Each answer should be about five sentences long and include a helpful hint.");
+                    promptBuilder.Append("Each answer should be about five sentences long and include a helpful hint. ");
+                    promptBuilder.Append("Format your response as a JSON array with objects containing 'QuestionText', 'Answer', and 'Hint'. ");
                 }
 
-                var schema = new
+                promptBuilder.Append("Example format: [{\"QuestionText\": \"Sample question?\", \"Answer\": \"Sample answer\", \"Hint\": \"Sample hint\"}]");
+
+                var messages = new List<ChatMessage>
                 {
-                    type = "object",
-                    properties = new
-                    {
-                        items = new
-                        {
-                            type = "array",
-                            items = new
-                            {
-                                type = "object",
-                                properties = new
-                                {
-                                    QuestionText = new { type = "string" },
-                                    Options = new
-                                    {
-                                        type = "array",
-                                        items = new { type = "string" },
-                                        minItems = 4,
-                                        maxItems = 4
-                                    },
-                                    Answer = new { type = "string" },
-                                    Hint = new { type = "string" }
-                                },
-                                required = request.QuestionType == QuestionType.MCQ
-                                    ? new[] { "QuestionText", "Options", "Answer" }
-                                    : new[] { "QuestionText", "Answer", "Hint" }
-                            }
-                        }
-                    },
-                    required = new[] { "items" }
+                    new SystemChatMessage("You are an expert question paper generator for school students. Always respond with valid JSON format."),
+                    new UserChatMessage(promptBuilder.ToString())
                 };
 
-                var response = await responsesClient.CreateResponseAsync(new ResponseCreationOptions
+                var chatCompletion = await chatClient.CompleteChatAsync(messages, new ChatCompletionOptions
                 {
-                    Model = "gpt-4o-mini",
-                    Input = promptBuilder.ToString(),
-                    Tools = { new FileSearchToolDefinition() },
-                    ToolResources = new()
-                    {
-                        FileSearch = new()
-                        {
-                            VectorStoreIds = { vectorStoreId },
-                            FileIds = { fileId }
-                        }
-                    },
-                    ResponseFormat = ResponseFormat.CreateJsonSchema(
-                        name: "question_set",
-                        schema: schema,
-                        strict: true)
+                    ResponseFormat = ChatResponseFormat.CreateJsonObjectFormat(),
+                    Temperature = 0.7f
                 });
 
-                var json = response.Output[0].Content[0].Text;
-                var questions = JsonConvert.DeserializeObject<List<QuestionDto>>(json) ?? new List<QuestionDto>();
+                // Replace the problematic parsing section with this improved version
+                var responseContent = chatCompletion.Value.Content[0].Text;
+
+                List<QuestionDto> questions;
+                try
+                {
+                    // First, try to parse as a wrapper object with "questions" property
+                    var wrapper = JsonConvert.DeserializeObject<dynamic>(responseContent);
+
+                    if (wrapper?.questions != null)
+                    {
+                        // The response has a "questions" property - extract it
+                        questions = JsonConvert.DeserializeObject<List<QuestionDto>>(wrapper.questions.ToString()) ?? new List<QuestionDto>();
+                    }
+                    else if (wrapper?.items != null)
+                    {
+                        // Fallback: try "items" property
+                        questions = JsonConvert.DeserializeObject<List<QuestionDto>>(wrapper.items.ToString()) ?? new List<QuestionDto>();
+                    }
+                    else
+                    {
+                        // Fallback: try to parse the entire response as an array
+                        questions = JsonConvert.DeserializeObject<List<QuestionDto>>(responseContent) ?? new List<QuestionDto>();
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    // If JSON parsing fails, log the raw response and create empty list
+                    _logger.LogWarning(ex, "Failed to parse OpenAI response. Raw content: {ResponseContent}", responseContent);
+                    questions = new List<QuestionDto>();
+                }
 
                 foreach (var q in questions)
                 {
@@ -157,10 +150,11 @@ namespace edpicker_api.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error generating questions via responses API");
+                _logger.LogError(ex, "Error generating questions via OpenAI chat API");
                 throw;
             }
         }
+
         public async Task<QuestionDto> RefreshQuestionAsync(RefreshQuestionRequestDto request)
         {
             try
@@ -219,6 +213,7 @@ namespace edpicker_api.Services
             }
             return sb.ToString();
         }
+
         private async Task<List<QuestionDto>> GenerateQuestionsWithOpenAIAsync(GenerateQuestionsRequestDto request, string content, string openAIApiKey)
         {
             var openAiHelper = new OpenAISearchMethod(openAIApiKey);
@@ -315,6 +310,7 @@ namespace edpicker_api.Services
 
             return allQuestions;
         }
+
         private bool AreSimilarQuestions(string question1, string question2)
         {
             if (string.IsNullOrWhiteSpace(question1) || string.IsNullOrWhiteSpace(question2))
@@ -375,6 +371,7 @@ namespace edpicker_api.Services
 
             return await Task.FromResult(fallbackQuestions);
         }
+
         private List<string> ChunkContent(string content, int maxChunkSize = 8000)
         {
             var chunks = new List<string>();
@@ -399,7 +396,7 @@ namespace edpicker_api.Services
                 // If single paragraph is too large, split it by sentences
                 if (paragraph.Length > maxChunkSize)
                 {
-                    
+
                     var sentences = paragraph.Split(SentenceDelimiters, StringSplitOptions.RemoveEmptyEntries); // Fix for CS1012
                     foreach (var sentence in sentences)
                     {
@@ -495,5 +492,4 @@ namespace edpicker_api.Services
             }
         }
     }
-
 }
