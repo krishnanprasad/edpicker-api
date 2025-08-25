@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
+using System.Collections.Generic;
 using edpicker_api.Models.Enum;
 
 namespace edpicker_api.Models.Dto
@@ -19,14 +20,19 @@ namespace edpicker_api.Models.Dto
         public string Topic { get; set; } = string.Empty;
 
         [Required]
-        [JsonConverter(typeof(JsonStringEnumConverter))]
-        public QuestionType QuestionType { get; set; }
+        [JsonPropertyName("questionType")]
+        public List<QuestionTypeRequestDto> QuestionTypes { get; set; } = new();
 
         [Required]
         public string Difficulty { get; set; } = string.Empty;
 
-        [Required]
-        [Range(1, int.MaxValue)]
+        [JsonIgnore]
+        public QuestionType QuestionType { get; set; }
+
+        [JsonIgnore]
         public int NumberOfQuestions { get; set; }
+
+        [JsonIgnore]
+        public string Section { get; set; } = "any";
     }
 }
