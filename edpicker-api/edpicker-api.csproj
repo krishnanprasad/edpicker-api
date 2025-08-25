@@ -27,6 +27,9 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.6" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="OpenAI" Version="2.1.0" />
+    <PackageReference Include="OpenAI.Assistants" Version="2.1.0" />
+    <PackageReference Include="OpenAI.Files" Version="2.1.0" />
+    <PackageReference Include="OpenAI.Responses" Version="2.1.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
     <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
 	  <PackageReference Include="UglyToad.PdfPig" Version="1.7.0-custom-5" />
