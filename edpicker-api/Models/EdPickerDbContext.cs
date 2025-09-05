@@ -19,6 +19,8 @@ public class EdPickerDbContext : DbContext
     public DbSet<School_JobApplicationDto> JobApplicationsDto { get; set; }
     public DbSet<School_ApplicationStatusCountDto> ApplicationStatusCounts { get; set; }
     public DbSet<BoardDto> Boards { get; set; }
+    public DbSet<SchoolClassDto> SchoolClasses { get; set; }
+
     public EdPickerDbContext(DbContextOptions<EdPickerDbContext> options)
       : base(options) { }
 
@@ -62,5 +64,6 @@ public class EdPickerDbContext : DbContext
         modelBuilder.Entity<BoardDto>().HasNoKey().ToView(null);
         modelBuilder.Entity<School_GetProfileDto>().HasNoKey().ToView(null);
         modelBuilder.Entity<School_ChangePasswordResultDto>().HasNoKey().ToView(null);
+        modelBuilder.Entity<SchoolClassDto>().HasNoKey().ToView(null);
     }
 }

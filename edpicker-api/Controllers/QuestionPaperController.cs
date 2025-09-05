@@ -1,6 +1,7 @@
 using edpicker_api.Models.Dto;
 using edpicker_api.Services.Interface;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace edpicker_api.Controllers
 {
@@ -10,13 +11,13 @@ namespace edpicker_api.Controllers
     {
         private readonly IQuestionPaperRepository _repository;
         private readonly ILogger<QuestionPaperController> _logger;
-
-        public QuestionPaperController(IQuestionPaperRepository repository, ILogger<QuestionPaperController> logger)
+        private readonly EdPickerQuestionPaperDbContext _context; // Add this
+        public QuestionPaperController(IQuestionPaperRepository repository, ILogger<QuestionPaperController> logger, EdPickerQuestionPaperDbContext context) // Add context
         {
             _repository = repository;
             _logger = logger;
+            _context = context; // Assign context
         }
-
         [HttpPost("generate-questions")]
         public async Task<IActionResult> GenerateQuestions([FromBody] GenerateQuestionsRequestDto request)
         {
@@ -80,5 +81,67 @@ namespace edpicker_api.Controllers
                 return StatusCode(500, "Error generating paper");
             }
         }
+        [HttpGet("dummy-test")]
+        public async Task<IActionResult> DummyTest()
+        {
+            return Ok("API is working fine!");
+        }
+        [HttpGet("school-classes/{schoolId}")]
+        public async Task<IActionResult> GetSchoolClasses(int schoolId)
+        {
+            try
+            {
+                var classes = await _repository.GetSchoolClassesAsync(schoolId);
+                return Ok(classes);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to retrieve school classes for SchoolId: {SchoolId}", schoolId);
+                return StatusCode(500, "Error retrieving school classes");
+            }
+        }
+        [HttpGet("school-subjects/{schoolId}/{classId}")]
+        public async Task<IActionResult> GetSchoolSubjects(int schoolId, int classId)
+        {
+            try
+            {
+                var subjects = await _repository.GetSchoolSubjectsAsync(schoolId, classId);
+                return Ok(subjects);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to retrieve school subjects for SchoolId: {SchoolId} and ClassId: {ClassId}", schoolId, classId);
+                return StatusCode(500, new { Message = "Error retrieving school subjects", Error = ex.Message });
+            }
+        }
+        [HttpGet("topics/{schoolId}/{subjectId}/{chapterId}")]
+        public async Task<IActionResult> GetTopicsBySubjectForSchool(int schoolId, int subjectId, int chapterId)
+        {
+            try
+            {
+                var topics = await _repository.GetTopicsBySubjectForSchoolAsync(schoolId, subjectId, chapterId);
+                return Ok(topics);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to retrieve topics for SchoolId: {SchoolId} and SubjectId: {SubjectId}", schoolId, subjectId);
+                return StatusCode(500, new { Message = "Error retrieving topics", Error = ex.Message });
+            }
+        }
+        [HttpGet("subject-chapters/{subjectId}")]
+        public async Task<IActionResult> GetSubjectChapters(int subjectId)
+        {
+            try
+            {
+                var chapters = await _repository.GetSubjectChaptersBySubjectAsync(subjectId);
+                return Ok(chapters);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to retrieve chapters for SubjectId: {SubjectId}", subjectId);
+                return StatusCode(500, new { Message = "Error retrieving chapters", Error = ex.Message });
+            }
+        }
+
     }
 }

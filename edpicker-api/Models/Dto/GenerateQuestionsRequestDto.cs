@@ -33,5 +33,7 @@ namespace edpicker_api.Models.Dto
 
         [JsonIgnore]
         public string Section { get; set; } = "any";
+        public int SubjectId { get; set; }
+        public int ChapterId { get; set; }
     }
 }

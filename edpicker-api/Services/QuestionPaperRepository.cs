@@ -1,15 +1,17 @@
-using System.Text;
 using System.Linq;
+using System.Text;
 using edpicker_api.Models.Dto;
 using edpicker_api.Models.Enum;
 using edpicker_api.Models.Methods;
+using edpicker_api.Models.QuestionPaper.Dto;
 using edpicker_api.Services.Interface;
 using Microsoft.AspNetCore.Hosting;
-using UglyToad.PdfPig;
-using UglyToad.PdfPig.Content;
+using Microsoft.EntityFrameworkCore;
+using Newtonsoft.Json;
 using OpenAI;
 using OpenAI.Chat;
-using Newtonsoft.Json;
+using UglyToad.PdfPig;
+using UglyToad.PdfPig.Content;
 
 namespace edpicker_api.Services
 {
@@ -20,6 +22,8 @@ namespace edpicker_api.Services
         private readonly IConfiguration _configuration;
         private readonly OpenAIClient _openAIClient;
         private static readonly string[] SentenceDelimiters = { ".", "!", "?" };
+        private readonly EdPickerDbContext _context;
+        private readonly EdPickerQuestionPaperDbContext _questionPaperContext;
 
         // Temporary in-memory mapping; replace with SQL-backed storage later
         private readonly Dictionary<(string Class, string Subject, string Chapter), (string VectorStoreId, string FileId)> _resourceMap = new()
@@ -27,12 +31,14 @@ namespace edpicker_api.Services
             { ("12", "Physics", "ELECTRIC CHARGES AND FIELDS"), ("vs_68a5899b87a48191a97a4a0d2919eca0", "file-8ZvmWMYWF4x5ujvKLJ7fi5") }
         };
 
-        public QuestionPaperRepository(IWebHostEnvironment env, ILogger<QuestionPaperRepository> logger, IConfiguration configuration, OpenAIClient openAIClient)
+        public QuestionPaperRepository(IWebHostEnvironment env, ILogger<QuestionPaperRepository> logger, IConfiguration configuration, OpenAIClient openAIClient, EdPickerDbContext context , EdPickerQuestionPaperDbContext questionPaperContext)
         {
             _env = env;
             _logger = logger;
             _configuration = configuration;
             _openAIClient = openAIClient;
+            _context = context;
+            _questionPaperContext = questionPaperContext;
         }
 
         public async Task<IEnumerable<QuestionDto>> GenerateQuestionsAsync(GenerateQuestionsRequestDto request)
@@ -94,17 +100,37 @@ namespace edpicker_api.Services
         {
             try
             {
-                if (!_resourceMap.TryGetValue((request.Class, request.Subject, request.Chapter), out var resources))
-                    throw new ArgumentException($"No resources mapped for class {request.Class}, subject {request.Subject}, chapter {request.Chapter}");
+                // Fetch VectorId and FileId from stored procedure
+                var chapterKnowledge = await _questionPaperContext.Set<ChapterKnowledgeDto>()
+                    .FromSqlInterpolated($@"
+                        EXEC dbo.ChapterKnowledge_GetVectorAndFiles
+                            @SchoolId = 1, 
+                            @SubjectId = {request.SubjectId}, 
+                            @ChapterId = {request.ChapterId},
+                            @IncludeGlobal = 1, 
+                            @TopOnlyLatest = 0")
+                    .ToListAsync();
 
-                var (vectorStoreId, fileId) = resources;
+                if (chapterKnowledge == null || chapterKnowledge.Count == 0)
+                {
+                    throw new ArgumentException($"No resources found for SubjectId {request.SubjectId} and ChapterId {request.ChapterId}");
+                }
+
+                var knowledge = chapterKnowledge.First();
+                var vectorStoreId = knowledge.VectorId;
+                var fileId = knowledge.FileId;
+                var className = knowledge.ClassName;
+                var subjectName = knowledge.SubjectName;
+                var chapterName = knowledge.ChapterName;
+                var classId = knowledge.ClassId;
+
                 var chatClient = _openAIClient.GetChatClient("gpt-4o-mini");
                 var allQuestions = new List<QuestionDto>();
 
                 foreach (var qt in request.QuestionTypes)
                 {
                     var promptBuilder = new StringBuilder();
-                    promptBuilder.Append($"Create {qt.NumberOfQuestions} {qt.Type} questions for Class {request.Class} {request.Subject} Chapter {request.Chapter} on topic {request.Topic}. ");
+                    promptBuilder.Append($"Create {qt.NumberOfQuestions} {qt.Type} questions for Class {className} {subjectName} Chapter {chapterName} on topic {request.Topic}. ");
                     if (!string.Equals(qt.Section, "any", StringComparison.OrdinalIgnoreCase))
                         promptBuilder.Append($"Section: {qt.Section}. ");
                     promptBuilder.Append($"Difficulty: {request.Difficulty}. Use only the provided textbook chapters as the source. Avoid verbatim copying; keep questions unique and syllabus-aligned. ");
@@ -555,6 +581,81 @@ namespace edpicker_api.Services
             {
                 _logger.LogWarning(ex, "Failed to generate questions from chunk, returning empty list");
                 return new List<QuestionDto>();
+            }
+        }
+
+        public async Task<IEnumerable<SchoolClassDto>> GetSchoolClassesAsync(int schoolId)
+        {
+            try
+            {
+                var classes = await _context.SchoolClasses
+                    .FromSqlInterpolated($@"
+                        SELECT Id, Name, Enabled
+                        FROM dbo.vw_SchoolClasses_EnabledOnly
+                        WHERE SchoolId = {schoolId}
+                        ORDER BY Id")
+                    .ToListAsync();
+
+                return classes;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving school classes for SchoolId: {SchoolId}", schoolId);
+                throw;
+            }
+        }
+        public async Task<IEnumerable<SchoolSubjectDto>> GetSchoolSubjectsAsync(int schoolId, int classId)
+        {
+            try
+            {
+                var subjects = await _questionPaperContext.SchoolSubjects
+                    .Where(s => s.SchoolId == schoolId && s.ClassId == classId)
+                    .ToListAsync();
+
+                return subjects;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving school subjects for SchoolId: {SchoolId} and ClassId: {ClassId}", schoolId, classId);
+                throw;
+            }
+        }
+        public async Task<IEnumerable<TopicDto>> GetTopicsBySubjectForSchoolAsync(int schoolId, int subjectId,int chapterId)
+        {
+            try
+            {
+                var topics = await _questionPaperContext.Topics
+                    .FromSqlInterpolated($@"
+                        EXEC dbo.Topic_GetBySubjectForSchool
+                            @SchoolId = {schoolId},
+                            @SubjectId = {subjectId},
+                            @ChapterId = {chapterId},
+                            @OnlyAllowed = 1")
+                    .ToListAsync();
+
+                return topics;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving topics for SchoolId: {SchoolId} and SubjectId: {SubjectId}", schoolId, subjectId);
+                throw;
+            }
+        }
+
+        public async Task<IEnumerable<SubjectChapterDto>> GetSubjectChaptersBySubjectAsync(int subjectId)
+        {
+            try
+            {
+                var chapters = await _questionPaperContext.SubjectChapters
+                    .Where(c => c.SubjectId == subjectId)
+                    .ToListAsync();
+
+                return chapters;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving chapters for SubjectId: {SubjectId}", subjectId);
+                throw;
             }
         }
     }
