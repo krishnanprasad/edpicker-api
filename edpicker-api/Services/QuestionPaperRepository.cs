@@ -178,7 +178,7 @@ namespace edpicker_api.Services
                         Temperature = 0.7f
                     });
 
-                    progvar responseContent = chatCompletion.Value.Content[0].Text;
+                    var responseContent = chatCompletion.Value.Content[0].Text;
 
                     // Parse the response
                     List<QuestionDto> questions;
