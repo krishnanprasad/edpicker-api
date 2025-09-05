@@ -7,11 +7,12 @@ using OpenAI;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using edpicker_api;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Register OpenAI client using API key from configuration
-var openAiKey = builder.Configuration["OpenAIKey"];
+var openAiKey = "";
 builder.Services.AddSingleton(_ => new OpenAIClient(openAiKey));
 
 // Add services to the container.
@@ -21,6 +22,8 @@ builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<IQuestionPaperRepository, QuestionPaperRepository>();
 builder.Services.AddControllers();
 builder.Services.AddDbContext<EdPickerDbContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+builder.Services.AddDbContext<EdPickerQuestionPaperDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
@@ -34,9 +37,15 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSpecificOrigins", policy =>
     {
-        policy.WithOrigins("http://localhost:4200", "https://edpicker-gkg3hndqb4feeqdt.eastasia-01.azurewebsites.net", "https://edpicker.in") // Specify allowed origin (Angular app)
-              .AllowAnyHeader() // Allow all headers
-              .AllowAnyMethod(); // Allow all HTTP methods
+        policy.WithOrigins(
+                "http://localhost:4200",
+                "https://edpicker-gkg3hndqb4feeqdt.eastasia-01.azurewebsites.net",
+                "https://edpicker.in",
+                "https://lively-ground-07276021e.1.azurestaticapps.net" // ADD THIS LINE
+              )
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
     });
 });
 builder.Services.AddAuthentication(options =>

@@ -15,9 +15,9 @@ namespace edpicker_api.Models.Methods
             {
                 // Set up an HttpClient with the necessary authorization
                 _httpClient = new HttpClient();
-            //    _httpClient.DefaultRequestHeaders.Authorization =
-            //        new AuthenticationHeaderValue("Bearer", "");
-            }
+            _httpClient.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", "");
+        }
 
         /// <summary>
         /// Searches the specified OpenAI file for the user's query and returns a snippet indicator.
