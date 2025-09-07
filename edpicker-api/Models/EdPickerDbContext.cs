@@ -1,5 +1,6 @@
 ﻿using edpicker_api.Models;
 using edpicker_api.Models.Dto;
+using edpicker_api.Models.Dto.SyllabusTracker;
 using edpicker_api.Models.Job;
 using edpicker_api.Models.Results;
 using Microsoft.EntityFrameworkCore;
@@ -65,5 +66,6 @@ public class EdPickerDbContext : DbContext
         modelBuilder.Entity<School_GetProfileDto>().HasNoKey().ToView(null);
         modelBuilder.Entity<School_ChangePasswordResultDto>().HasNoKey().ToView(null);
         modelBuilder.Entity<SchoolClassDto>().HasNoKey().ToView(null);
+        modelBuilder.Entity<ProgressDto>().HasNoKey().ToView(null);
     }
 }
