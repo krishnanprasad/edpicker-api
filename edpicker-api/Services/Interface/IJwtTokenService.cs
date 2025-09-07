@@ -6,5 +6,7 @@ namespace edpicker_api.Services.Interface
     {
         string GenerateToken(SchoolAccounts user);
         string GenerateToken(User user);
+        string GenerateToken(string userId, int schoolId, string schoolName);
+        string GenerateRefreshToken();
     }
 }

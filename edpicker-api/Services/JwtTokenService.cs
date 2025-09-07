@@ -77,4 +77,51 @@ public class JwtTokenService : IJwtTokenService
             return e.ToString();
         }
     }
+
+    public string GenerateToken(string userId, int schoolId, string schoolName)
+    {
+        try
+        {
+            var claims = new[]
+            {
+                new Claim(JwtRegisteredClaimNames.Sub, userId),
+                new Claim("userId", userId),
+                new Claim("schoolId", schoolId.ToString()),
+                new Claim("schoolName", schoolName ?? string.Empty),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+            };
+
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
+            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+            var token = new JwtSecurityToken(
+                issuer: _config["Jwt:Issuer"],
+                audience: _config["Jwt:Audience"],
+                claims: claims,
+                expires: DateTime.Now.AddMinutes(Convert.ToInt32(_config["Jwt:ExpireMinutes"])),
+                signingCredentials: creds
+            );
+
+            return new JwtSecurityTokenHandler().WriteToken(token);
+        }
+        catch (Exception e)
+        {
+            return e.ToString();
+        }
+    }
+
+    public string GenerateRefreshToken()
+    {
+        try
+        {
+            var randomNumber = new byte[32];
+            using var rng = System.Security.Cryptography.RandomNumberGenerator.Create();
+            rng.GetBytes(randomNumber);
+            return Convert.ToBase64String(randomNumber);
+        }
+        catch (Exception e)
+        {
+            return e.ToString();
+        }
+    }
 }
