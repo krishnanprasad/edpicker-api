@@ -1,19 +1,22 @@
 using System.Text;
 using Azure.Identity;
+using Azure.Security.KeyVault.Secrets;
+using edpicker_api;
 using edpicker_api.Models;
 using edpicker_api.Services;
 using edpicker_api.Services.Interface;
-using OpenAI;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using edpicker_api;
+using OpenAI;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Register OpenAI client using API key from configuration
-var openAiKey = "";
+
+string openAiKey = GetSecretFromKeyVault(builder.Configuration, "KeyVault:OpenAIKeySecretName").GetAwaiter().GetResult();
 builder.Services.AddSingleton(_ => new OpenAIClient(openAiKey));
+// Retrieve Database Password from Azure Key Vault
+string dbPassword = GetSecretFromKeyVault(builder.Configuration, "KeyVault:DbPasswordSecretName").GetAwaiter().GetResult();
 
 // Add services to the container.
 builder.Services.AddScoped<IJobBoardRepository, JobBoardRepository>();
@@ -93,3 +96,23 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+static async Task<string> GetSecretFromKeyVault(IConfiguration configuration, string secretNameConfig)
+{
+    string keyVaultUrl = configuration["KeyVault:Url"];
+    string secretName = configuration[secretNameConfig];
+
+    // Create a Key Vault client
+    var client = new SecretClient(new Uri(keyVaultUrl), new DefaultAzureCredential());
+
+    try
+    {
+        // Get the secret
+        KeyVaultSecret secret = await client.GetSecretAsync(secretName);
+        return secret.Value;
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Error retrieving secret: {ex.Message}");
+        throw; // Re-throw the exception to prevent the application from running without the key
+    }
+}
