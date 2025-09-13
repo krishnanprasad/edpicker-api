@@ -20,8 +20,7 @@ try
     string openAiKey = GetSecretFromKeyVault(builder.Configuration, "KeyVault:OpenAIKeySecretName").GetAwaiter().GetResult();
     builder.Services.AddSingleton(_ => new OpenAIClient(openAiKey));
     // Retrieve Database Password from Azure Key Vault
-    //string dbPassword = GetSecretFromKeyVault(builder.Configuration, "KeyVault:DbPasswordSecretName").GetAwaiter().GetResult();
-    string dbPassword = "Server=edpickeraiserver.database.windows.net;Database=edpickeraidb;User Id=edpickerteam;Password=Hellodb@10;MultipleActiveResultSets=True;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;";
+    string dbPassword = GetSecretFromKeyVault(builder.Configuration, "KeyVault:DbPasswordSecretName").GetAwaiter().GetResult();
     // Add services to the container.
     builder.Services.AddScoped<IJobBoardRepository, JobBoardRepository>();
     builder.Services.AddScoped<ISchoolAccountRepository, SchoolAccountRepository>();
@@ -31,7 +30,12 @@ try
     builder.Services.AddDbContext<EdPickerDbContext>(options =>
         options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
     builder.Services.AddDbContext<EdPickerQuestionPaperDbContext>(options =>
-        options.UseSqlServer(dbPassword));
+        options.UseSqlServer(
+            dbPassword,
+            sqlOptions => sqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 5,
+                maxRetryDelay: TimeSpan.FromSeconds(10),
+                errorNumbersToAdd: null)));
     // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen();
