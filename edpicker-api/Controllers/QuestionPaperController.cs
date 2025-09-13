@@ -97,7 +97,7 @@ namespace edpicker_api.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to retrieve school classes for SchoolId: {SchoolId}", schoolId);
-                return StatusCode(500, "Error retrieving school classes");
+                return StatusCode(500, "Error retrieving school classes" + ex);
             }
         }
         [HttpGet("school-subjects/{schoolId}/{classId}")]

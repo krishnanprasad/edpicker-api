@@ -20,7 +20,8 @@ try
     string openAiKey = GetSecretFromKeyVault(builder.Configuration, "KeyVault:OpenAIKeySecretName").GetAwaiter().GetResult();
     builder.Services.AddSingleton(_ => new OpenAIClient(openAiKey));
     // Retrieve Database Password from Azure Key Vault
-    string dbPassword = GetSecretFromKeyVault(builder.Configuration, "KeyVault:DbPasswordSecretName").GetAwaiter().GetResult();
+    //string dbPassword = GetSecretFromKeyVault(builder.Configuration, "KeyVault:DbPasswordSecretName").GetAwaiter().GetResult();
+    string dbPassword = "Server=edpickeraiserver.database.windows.net;Database=edpickeraidb;User Id=edpickerteam;Password=Hellodb@10;MultipleActiveResultSets=True;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;";
     // Add services to the container.
     builder.Services.AddScoped<IJobBoardRepository, JobBoardRepository>();
     builder.Services.AddScoped<ISchoolAccountRepository, SchoolAccountRepository>();
