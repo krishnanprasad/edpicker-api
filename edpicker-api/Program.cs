@@ -9,33 +9,42 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using OpenAI;
+using Microsoft.AspNetCore.Diagnostics;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Capture startup errors so they can be reported on the root endpoint.
+string? startupError = null;
+try
+{
+    string openAiKey = GetSecretFromKeyVault(builder.Configuration, "KeyVault:OpenAIKeySecretName").GetAwaiter().GetResult();
+    builder.Services.AddSingleton(_ => new OpenAIClient(openAiKey));
+    // Retrieve Database Password from Azure Key Vault
+    string dbPassword = GetSecretFromKeyVault(builder.Configuration, "KeyVault:DbPasswordSecretName").GetAwaiter().GetResult();
 
-string openAiKey = GetSecretFromKeyVault(builder.Configuration, "KeyVault:OpenAIKeySecretName").GetAwaiter().GetResult();
-builder.Services.AddSingleton(_ => new OpenAIClient(openAiKey));
-// Retrieve Database Password from Azure Key Vault
-string dbPassword = GetSecretFromKeyVault(builder.Configuration, "KeyVault:DbPasswordSecretName").GetAwaiter().GetResult();
-
-// Add services to the container.
-builder.Services.AddScoped<IJobBoardRepository, JobBoardRepository>();
-builder.Services.AddScoped<ISchoolAccountRepository, SchoolAccountRepository>();
-builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
-builder.Services.AddScoped<IQuestionPaperRepository, QuestionPaperRepository>();
-builder.Services.AddControllers();
-builder.Services.AddDbContext<EdPickerDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
-builder.Services.AddDbContext<EdPickerQuestionPaperDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-builder.Services.AddApplicationInsightsTelemetry();
-builder.Services.AddScoped<IUserRepository, UserRepository>();
-builder.Services.AddScoped<ICommonRepository, CommonRepository>();
-builder.Services.AddScoped<ILoginRepository, LoginRepository>();
-builder.Services.AddHttpClient();
+    // Add services to the container.
+    builder.Services.AddScoped<IJobBoardRepository, JobBoardRepository>();
+    builder.Services.AddScoped<ISchoolAccountRepository, SchoolAccountRepository>();
+    builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
+    builder.Services.AddScoped<IQuestionPaperRepository, QuestionPaperRepository>();
+    builder.Services.AddControllers();
+    builder.Services.AddDbContext<EdPickerDbContext>(options =>
+        options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    builder.Services.AddDbContext<EdPickerQuestionPaperDbContext>(options =>
+        options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+    builder.Services.AddEndpointsApiExplorer();
+    builder.Services.AddSwaggerGen();
+    builder.Services.AddApplicationInsightsTelemetry();
+    builder.Services.AddScoped<IUserRepository, UserRepository>();
+    builder.Services.AddScoped<ICommonRepository, CommonRepository>();
+    builder.Services.AddScoped<ILoginRepository, LoginRepository>();
+    builder.Services.AddHttpClient();
+}
+catch (Exception ex)
+{
+    startupError = ex.ToString();
+}
 // Configure CORS
 builder.Services.AddCors(options =>
 {
@@ -82,6 +91,17 @@ builder.Services.AddAuthentication(options =>
 });
 var app = builder.Build();
 
+// Basic exception handler to surface errors in plain text while debugging.
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;
+        context.Response.ContentType = "text/plain";
+        await context.Response.WriteAsync(exception?.ToString() ?? "An error occurred");
+    });
+});
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
@@ -92,6 +112,12 @@ app.UseCors("AllowSpecificOrigins");
 app.UseHttpsRedirection();
 app.UseAuthentication(); // <--- Add this BEFORE app.UseAuthorization()
 app.UseAuthorization();
+
+// Return a simple message on the root endpoint so the service can be probed easily.
+app.MapGet("/", () =>
+    string.IsNullOrEmpty(startupError)
+        ? Results.Ok("Server is live")
+        : Results.Problem(startupError));
 
 app.MapControllers();
 
