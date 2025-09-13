@@ -11,12 +11,10 @@ namespace edpicker_api.Controllers
     {
         private readonly IQuestionPaperRepository _repository;
         private readonly ILogger<QuestionPaperController> _logger;
-        private readonly EdPickerQuestionPaperDbContext _context; // Add this
-        public QuestionPaperController(IQuestionPaperRepository repository, ILogger<QuestionPaperController> logger, EdPickerQuestionPaperDbContext context) // Add context
+        public QuestionPaperController(IQuestionPaperRepository repository, ILogger<QuestionPaperController> logger) // Add context
         {
             _repository = repository;
             _logger = logger;
-            _context = context; // Assign context
         }
         [HttpPost("generate-questions")]
         public async Task<IActionResult> GenerateQuestions([FromBody] GenerateQuestionsRequestDto request)

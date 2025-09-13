@@ -22,7 +22,7 @@ namespace edpicker_api.Services
         private readonly IConfiguration _configuration;
         private readonly OpenAIClient _openAIClient;
         private static readonly string[] SentenceDelimiters = { ".", "!", "?" };
-        private readonly EdPickerDbContext _context;
+        //private readonly EdPickerDbContext _context;
         private readonly EdPickerQuestionPaperDbContext _questionPaperContext;
 
         // Temporary in-memory mapping; replace with SQL-backed storage later
@@ -31,16 +31,23 @@ namespace edpicker_api.Services
             { ("12", "Physics", "ELECTRIC CHARGES AND FIELDS"), ("vs_68a5899b87a48191a97a4a0d2919eca0", "file-8ZvmWMYWF4x5ujvKLJ7fi5") }
         };
 
-        public QuestionPaperRepository(IWebHostEnvironment env, ILogger<QuestionPaperRepository> logger, IConfiguration configuration, OpenAIClient openAIClient, EdPickerDbContext context , EdPickerQuestionPaperDbContext questionPaperContext)
+        //public QuestionPaperRepository(IWebHostEnvironment env, ILogger<QuestionPaperRepository> logger, IConfiguration configuration, OpenAIClient openAIClient, EdPickerDbContext context , EdPickerQuestionPaperDbContext questionPaperContext)
+        //{
+        //    _env = env;
+        //    _logger = logger;
+        //    _configuration = configuration;
+        //    _openAIClient = openAIClient;
+        //    _context = context;
+        //    _questionPaperContext = questionPaperContext;
+        //}
+        public QuestionPaperRepository(IWebHostEnvironment env, ILogger<QuestionPaperRepository> logger, IConfiguration configuration, OpenAIClient openAIClient, EdPickerQuestionPaperDbContext questionPaperContext)
         {
             _env = env;
             _logger = logger;
             _configuration = configuration;
             _openAIClient = openAIClient;
-            _context = context;
             _questionPaperContext = questionPaperContext;
         }
-
         public async Task<IEnumerable<QuestionDto>> GenerateQuestionsAsync(GenerateQuestionsRequestDto request)
         {
             try
@@ -588,7 +595,7 @@ namespace edpicker_api.Services
         {
             try
             {
-                var classes = await _context.SchoolClasses
+                var classes = await _questionPaperContext.SchoolClasses
                     .FromSqlInterpolated($@"
                         SELECT Id, Name, Enabled
                         FROM dbo.vw_SchoolClasses_EnabledOnly
