@@ -16,6 +16,7 @@ using OpenAI;
 using OpenAI.Chat;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.Content;
+using System.Data;
 
 namespace edpicker_api.Services
 {
@@ -213,7 +214,7 @@ namespace edpicker_api.Services
 
                     var messages = new List<ChatMessage>
                     {
-                        new SystemChatMessage("You are an expert question paper generator for school students. Always respond with valid JSON format containing a 'questions' array. Include QuestionType and Section in each question object."),
+                        new SystemChatMessage("You are an expert question paper generator for school students. Always respond with valid JSON format containing a 'questions' array. Include QuestionType and Section in each question object.Make sure you are giving the exact numebr of questions asked"),
                         new UserChatMessage(promptBuilder.ToString())
                     };
 
@@ -229,14 +230,21 @@ namespace edpicker_api.Services
                         promptTokenTotal += usage.PromptTokens.Value;
                         hasPromptTokens = true;
                     }
-
+                    else
+                    {
+                        promptTokenTotal += chatCompletion.Value.Usage.InputTokenCount;
+                    }
                     if (usage.CompletionTokens.HasValue)
                     {
                         completionTokenTotal += usage.CompletionTokens.Value;
                         hasCompletionTokens = true;
                     }
+                    else
+                    {
+                        completionTokenTotal += chatCompletion.Value.Usage.TotalTokenCount;
+                    }
 
-                    var responseContent = chatCompletion.Value.Content[0].Text;
+                        var responseContent = chatCompletion.Value.Content[0].Text;
 
                     // Parse the response
                     List<QuestionDto> questions;
@@ -277,8 +285,8 @@ namespace edpicker_api.Services
                 stopwatch.Stop();
                 var elapsedMs = stopwatch.Elapsed.TotalMilliseconds;
                 var generationMs = elapsedMs > int.MaxValue ? int.MaxValue : (int)Math.Round(elapsedMs);
-                var promptTokensForLog = hasPromptTokens ? promptTokenTotal : (int?)null;
-                var completionTokensForLog = hasCompletionTokens ? completionTokenTotal : (int?)null;
+                var promptTokensForLog =  promptTokenTotal > 0 ? promptTokenTotal : (int?)null;
+                var completionTokensForLog = completionTokenTotal > 0 ? completionTokenTotal : (int?)null;
 
                 var paperJson = SerializeToJson(allQuestions);
                 var metaPayload = new
@@ -416,7 +424,7 @@ namespace edpicker_api.Services
                     var parameters = new[]
                     {
                         CreateSqlParameter("@SchoolId", SqlDbType.Int, schoolId),
-                        CreateSqlParameter("@UserId", SqlDbType.Int, userId),
+                        CreateSqlParameter("@UserId", SqlDbType.Int, userId ?? 3),
                         CreateSqlParameter("@ClassId", SqlDbType.Int, classId),
                         CreateSqlParameter("@SubjectId", SqlDbType.Int, subjectId),
                         CreateSqlParameter("@ChapterId", SqlDbType.Int, chapterId),
