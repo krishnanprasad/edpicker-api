@@ -35,5 +35,8 @@ namespace edpicker_api.Models.Dto
         public string Section { get; set; } = "any";
         public int SubjectId { get; set; }
         public int ChapterId { get; set; }
+        public int? SchoolId { get; set; }
+        public int? UserId { get; set; }
+        public string? BrowserIp { get; set; }
     }
 }

@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using edpicker_api.Models.Dto;
 using edpicker_api.Services.Interface;
 using Microsoft.AspNetCore.Mvc;
@@ -40,6 +41,7 @@ namespace edpicker_api.Controllers
                 return BadRequest(ModelState);
             try
             {
+                PopulateRequestContext(request);
                 var questions = await _repository.GenerateQuestionsWithResponsesAsync(request);
                 return Ok(questions);
             }
@@ -48,6 +50,34 @@ namespace edpicker_api.Controllers
                 _logger.LogError(ex, "Failed to generate questions (v2)");
                 return StatusCode(500, "Error generating questions");
             }
+        }
+
+        private void PopulateRequestContext(GenerateQuestionsRequestDto request)
+        {
+            if (request == null)
+            {
+                return;
+            }
+
+            if (!request.UserId.HasValue)
+            {
+                var userIdClaim = User.FindFirst("userId")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (int.TryParse(userIdClaim, out var userId))
+                {
+                    request.UserId = userId;
+                }
+            }
+
+            if (!request.SchoolId.HasValue)
+            {
+                var schoolIdClaim = User.FindFirst("schoolId")?.Value ?? User.FindFirst(ClaimTypes.GroupSid)?.Value;
+                if (int.TryParse(schoolIdClaim, out var schoolId))
+                {
+                    request.SchoolId = schoolId;
+                }
+            }
+
+            request.BrowserIp ??= HttpContext?.Connection?.RemoteIpAddress?.ToString();
         }
 
         [HttpPost("refresh-question")]

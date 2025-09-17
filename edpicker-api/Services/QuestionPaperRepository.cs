@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using edpicker_api.Models.Dto;
 using edpicker_api.Models.Enum;
 using edpicker_api.Models.Methods;
@@ -7,6 +9,8 @@ using edpicker_api.Models.QuestionPaper.Dto;
 using edpicker_api.Services.Interface;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
 using OpenAI;
 using OpenAI.Chat;
@@ -21,7 +25,9 @@ namespace edpicker_api.Services
         private readonly ILogger<QuestionPaperRepository> _logger;
         private readonly IConfiguration _configuration;
         private readonly OpenAIClient _openAIClient;
+        private readonly IServiceScopeFactory _scopeFactory;
         private static readonly string[] SentenceDelimiters = { ".", "!", "?" };
+        private const string DefaultAiModel = "gpt-4o-mini";
         //private readonly EdPickerDbContext _context;
         private readonly EdPickerQuestionPaperDbContext _questionPaperContext;
 
@@ -40,13 +46,14 @@ namespace edpicker_api.Services
         //    _context = context;
         //    _questionPaperContext = questionPaperContext;
         //}
-        public QuestionPaperRepository(IWebHostEnvironment env, ILogger<QuestionPaperRepository> logger, IConfiguration configuration, OpenAIClient openAIClient, EdPickerQuestionPaperDbContext questionPaperContext)
+        public QuestionPaperRepository(IWebHostEnvironment env, ILogger<QuestionPaperRepository> logger, IConfiguration configuration, OpenAIClient openAIClient, EdPickerQuestionPaperDbContext questionPaperContext, IServiceScopeFactory scopeFactory)
         {
             _env = env;
             _logger = logger;
             _configuration = configuration;
             _openAIClient = openAIClient;
             _questionPaperContext = questionPaperContext;
+            _scopeFactory = scopeFactory;
         }
         public async Task<IEnumerable<QuestionDto>> GenerateQuestionsAsync(GenerateQuestionsRequestDto request)
         {
@@ -69,18 +76,23 @@ namespace edpicker_api.Services
                 var allQuestions = new List<QuestionDto>();
                 foreach (var qt in request.QuestionTypes)
                 {
-                    var modifiedRequest = new GenerateQuestionsRequestDto
-                    {
-                        Class = request.Class,
-                        Subject = request.Subject,
-                        Chapter = request.Chapter,
-                        Topic = request.Topic,
-                        QuestionTypes = request.QuestionTypes,
-                        Difficulty = request.Difficulty,
-                        QuestionType = qt.Type,
-                        NumberOfQuestions = qt.NumberOfQuestions,
-                        Section = qt.Section
-                    };
+                        var modifiedRequest = new GenerateQuestionsRequestDto
+                        {
+                            Class = request.Class,
+                            Subject = request.Subject,
+                            Chapter = request.Chapter,
+                            Topic = request.Topic,
+                            QuestionTypes = request.QuestionTypes,
+                            Difficulty = request.Difficulty,
+                            QuestionType = qt.Type,
+                            NumberOfQuestions = qt.NumberOfQuestions,
+                            Section = qt.Section,
+                            SubjectId = request.SubjectId,
+                            ChapterId = request.ChapterId,
+                            SchoolId = request.SchoolId,
+                            UserId = request.UserId,
+                            BrowserIp = request.BrowserIp
+                        };
 
                     var result = await GenerateQuestionsWithOpenAIAsync(modifiedRequest, content, openAIApiKey);
 
@@ -107,14 +119,16 @@ namespace edpicker_api.Services
         {
             try
             {
+                var schoolId = request.SchoolId ?? 1;
+
                 // Fetch VectorId and FileId from stored procedure
                 var chapterKnowledge = await _questionPaperContext.Set<ChapterKnowledgeDto>()
                     .FromSqlInterpolated($@"
                         EXEC dbo.ChapterKnowledge_GetVectorAndFiles
-                            @SchoolId = 1, 
-                            @SubjectId = {request.SubjectId}, 
+                            @SchoolId = {schoolId},
+                            @SubjectId = {request.SubjectId},
                             @ChapterId = {request.ChapterId},
-                            @IncludeGlobal = 1, 
+                            @IncludeGlobal = 1,
                             @TopOnlyLatest = 0")
                     .ToListAsync();
 
@@ -130,9 +144,33 @@ namespace edpicker_api.Services
                 var subjectName = knowledge.SubjectName;
                 var chapterName = knowledge.ChapterName;
                 var classId = knowledge.ClassId;
+                var subjectId = knowledge.SubjectId;
+                var chapterId = knowledge.ChapterId;
 
-                var chatClient = _openAIClient.GetChatClient("gpt-4o-mini");
+                if (request.SubjectId == 0)
+                {
+                    request.SubjectId = subjectId;
+                }
+
+                if (request.ChapterId == 0)
+                {
+                    request.ChapterId = chapterId;
+                }
+
+                if (!request.SchoolId.HasValue)
+                {
+                    request.SchoolId = schoolId;
+                }
+
+                var generationStartUtc = DateTime.UtcNow;
+                var stopwatch = Stopwatch.StartNew();
+
+                var chatClient = _openAIClient.GetChatClient(DefaultAiModel);
                 var allQuestions = new List<QuestionDto>();
+                var promptTokenTotal = 0;
+                var completionTokenTotal = 0;
+                var hasPromptTokens = false;
+                var hasCompletionTokens = false;
 
                 foreach (var qt in request.QuestionTypes)
                 {
@@ -185,6 +223,19 @@ namespace edpicker_api.Services
                         Temperature = 0.7f
                     });
 
+                    var usage = ExtractTokenUsage(chatCompletion.Value);
+                    if (usage.PromptTokens.HasValue)
+                    {
+                        promptTokenTotal += usage.PromptTokens.Value;
+                        hasPromptTokens = true;
+                    }
+
+                    if (usage.CompletionTokens.HasValue)
+                    {
+                        completionTokenTotal += usage.CompletionTokens.Value;
+                        hasCompletionTokens = true;
+                    }
+
                     var responseContent = chatCompletion.Value.Content[0].Text;
 
                     // Parse the response
@@ -222,6 +273,71 @@ namespace edpicker_api.Services
 
                     allQuestions.AddRange(questions);
                 }
+
+                stopwatch.Stop();
+                var elapsedMs = stopwatch.Elapsed.TotalMilliseconds;
+                var generationMs = elapsedMs > int.MaxValue ? int.MaxValue : (int)Math.Round(elapsedMs);
+                var promptTokensForLog = hasPromptTokens ? promptTokenTotal : (int?)null;
+                var completionTokensForLog = hasCompletionTokens ? completionTokenTotal : (int?)null;
+
+                var paperJson = SerializeToJson(allQuestions);
+                var metaPayload = new
+                {
+                    Request = new
+                    {
+                        request.Class,
+                        request.Subject,
+                        request.Chapter,
+                        request.Topic,
+                        request.Difficulty,
+                        QuestionTypes = request.QuestionTypes?.Select(q => new
+                        {
+                            Type = q.Type.ToString(),
+                            q.Section,
+                            q.NumberOfQuestions
+                        }),
+                        request.SubjectId,
+                        request.ChapterId,
+                        request.SchoolId,
+                        request.UserId,
+                        request.BrowserIp
+                    },
+                    KnowledgeSource = new
+                    {
+                        vectorStoreId,
+                        fileId,
+                        classId,
+                        className,
+                        subjectId,
+                        subjectName,
+                        chapterId,
+                        chapterName
+                    },
+                    Generation = new
+                    {
+                        StartedAtUtc = generationStartUtc,
+                        DurationMs = generationMs,
+                        AiModel = DefaultAiModel,
+                        PromptTokens = promptTokensForLog,
+                        CompletionTokens = completionTokensForLog
+                    }
+                };
+                var metaJson = SerializeToJson(metaPayload);
+
+                QueueQuestionPaperLog(
+                    request.SchoolId ?? schoolId,
+                    request.UserId,
+                    classId,
+                    subjectId,
+                    chapterId,
+                    null,
+                    DefaultAiModel,
+                    generationMs,
+                    allQuestions.Count,
+                    promptTokensForLog,
+                    completionTokensForLog,
+                    paperJson,
+                    metaJson);
 
                 return allQuestions;
             }
@@ -273,6 +389,130 @@ namespace edpicker_api.Services
                 _logger.LogError(ex, "Error generating paper");
                 throw;
             }
+        }
+
+        private void QueueQuestionPaperLog(
+            int? schoolId,
+            int? userId,
+            int? classId,
+            int? subjectId,
+            int? chapterId,
+            int? topicId,
+            string aiModel,
+            int generationMs,
+            int numQuestions,
+            int? promptTokens,
+            int? completionTokens,
+            string paperJson,
+            string metaJson)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await using var scope = _scopeFactory.CreateAsyncScope();
+                    var context = scope.ServiceProvider.GetRequiredService<EdPickerQuestionPaperDbContext>();
+
+                    var parameters = new[]
+                    {
+                        CreateSqlParameter("@SchoolId", SqlDbType.Int, schoolId),
+                        CreateSqlParameter("@UserId", SqlDbType.Int, userId),
+                        CreateSqlParameter("@ClassId", SqlDbType.Int, classId),
+                        CreateSqlParameter("@SubjectId", SqlDbType.Int, subjectId),
+                        CreateSqlParameter("@ChapterId", SqlDbType.Int, chapterId),
+                        CreateSqlParameter("@TopicId", SqlDbType.Int, topicId),
+                        new SqlParameter("@AiModel", SqlDbType.NVarChar, 100) { Value = aiModel },
+                        CreateSqlParameter("@GenerationMs", SqlDbType.Int, generationMs),
+                        CreateSqlParameter("@NumQuestions", SqlDbType.Int, numQuestions),
+                        CreateSqlParameter("@PromptTokens", SqlDbType.Int, promptTokens),
+                        CreateSqlParameter("@CompletionTokens", SqlDbType.Int, completionTokens),
+                        CreateSqlParameter("@PaperJson", SqlDbType.NVarChar, paperJson, isJson: true),
+                        CreateSqlParameter("@MetaJson", SqlDbType.NVarChar, metaJson, isJson: true)
+                    };
+
+                    await context.Database.ExecuteSqlRawAsync(
+                        "EXEC dbo.QuestionPaper_Create @SchoolId, @UserId, @ClassId, @SubjectId, @ChapterId, @TopicId, @AiModel, @GenerationMs, @NumQuestions, @PromptTokens, @CompletionTokens, @PaperJson, @MetaJson",
+                        parameters).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to log question paper creation for user {UserId}", userId);
+                }
+            });
+        }
+
+        private static SqlParameter CreateSqlParameter(string name, SqlDbType sqlDbType, object? value, bool isJson = false)
+        {
+            var parameter = new SqlParameter(name, sqlDbType);
+
+            if (sqlDbType == SqlDbType.NVarChar && isJson)
+            {
+                parameter.Size = -1;
+            }
+
+            parameter.Value = value ?? DBNull.Value;
+            return parameter;
+        }
+
+        private static (int? PromptTokens, int? CompletionTokens) ExtractTokenUsage(object? chatCompletionValue)
+        {
+            if (chatCompletionValue == null)
+            {
+                return (null, null);
+            }
+
+            try
+            {
+                var usageProperty = chatCompletionValue.GetType().GetProperty("Usage");
+                if (usageProperty == null)
+                {
+                    return (null, null);
+                }
+
+                var usageValue = usageProperty.GetValue(chatCompletionValue);
+                if (usageValue == null)
+                {
+                    return (null, null);
+                }
+
+                return (TryGetIntProperty(usageValue, "PromptTokens"), TryGetIntProperty(usageValue, "CompletionTokens"));
+            }
+            catch
+            {
+                return (null, null);
+            }
+        }
+
+        private static int? TryGetIntProperty(object instance, string propertyName)
+        {
+            var property = instance.GetType().GetProperty(propertyName);
+            if (property == null)
+            {
+                return null;
+            }
+
+            var value = property.GetValue(instance);
+            if (value == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                return Convert.ToInt32(value);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static string SerializeToJson(object? value)
+        {
+            return JsonConvert.SerializeObject(
+                value,
+                Formatting.None,
+                new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
         }
 
         private string ReadPdfContent(string path)
