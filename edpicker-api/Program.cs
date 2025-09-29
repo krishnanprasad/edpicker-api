@@ -26,6 +26,7 @@ try
     builder.Services.AddScoped<ISchoolAccountRepository, SchoolAccountRepository>();
     builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
     builder.Services.AddScoped<IQuestionPaperRepository, QuestionPaperRepository>();
+    builder.Services.AddScoped<IPlannerRepository, PlannerRepository>();
     builder.Services.AddControllers();
     builder.Services.AddDbContext<EdPickerDbContext>(options =>
         options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
