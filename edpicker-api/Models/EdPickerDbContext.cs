@@ -1,6 +1,7 @@
-﻿using edpicker_api.Models;
+using edpicker_api.Models;
 using edpicker_api.Models.Dto;
 using edpicker_api.Models.Job;
+using edpicker_api.Models.Planner.Entities;
 using edpicker_api.Models.Results;
 using Microsoft.EntityFrameworkCore;
 
@@ -20,6 +21,18 @@ public class EdPickerDbContext : DbContext
     public DbSet<School_ApplicationStatusCountDto> ApplicationStatusCounts { get; set; }
     public DbSet<BoardDto> Boards { get; set; }
     public DbSet<SchoolClassDto> SchoolClasses { get; set; }
+
+    public DbSet<AcademicYear> AcademicYears { get; set; }
+    public DbSet<CurriculumClass> CurriculumClasses { get; set; }
+    public DbSet<Section> Sections { get; set; }
+    public DbSet<Subject> Subjects { get; set; }
+    public DbSet<Template> Templates { get; set; }
+    public DbSet<Unit> Units { get; set; }
+    public DbSet<Chapter> Chapters { get; set; }
+    public DbSet<Topic> Topics { get; set; }
+    public DbSet<CurriculumInstance> CurriculumInstances { get; set; }
+    public DbSet<TopicCompletion> TopicCompletions { get; set; }
+    public DbSet<AuditLog> AuditLogs { get; set; }
 
     public EdPickerDbContext(DbContextOptions<EdPickerDbContext> options)
       : base(options) { }
@@ -57,7 +70,7 @@ public class EdPickerDbContext : DbContext
             eb.HasNoKey();
             eb.ToView(null);
         });
-        modelBuilder.Entity<UserJobApplicationDto>().HasNoKey(); 
+        modelBuilder.Entity<UserJobApplicationDto>().HasNoKey();
         modelBuilder.Entity<School_JobApplicationDto>().HasNoKey().ToView(null);
         modelBuilder.Entity<School_ApplicationStatusCountDto>().HasNoKey().ToView(null);
         modelBuilder.Entity<School_JobListDto>().HasNoKey().ToView(null);
@@ -65,5 +78,80 @@ public class EdPickerDbContext : DbContext
         modelBuilder.Entity<School_GetProfileDto>().HasNoKey().ToView(null);
         modelBuilder.Entity<School_ChangePasswordResultDto>().HasNoKey().ToView(null);
         modelBuilder.Entity<SchoolClassDto>().HasNoKey().ToView(null);
+
+        ConfigurePlannerModel(modelBuilder);
+    }
+
+    private static void ConfigurePlannerModel(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<CurriculumClass>()
+            .HasMany(c => c.Sections)
+            .WithOne(s => s.Class)
+            .HasForeignKey(s => s.ClassId);
+
+        modelBuilder.Entity<CurriculumClass>()
+            .HasMany(c => c.Subjects)
+            .WithOne(s => s.Class)
+            .HasForeignKey(s => s.ClassId);
+
+        modelBuilder.Entity<Template>()
+            .HasIndex(t => new { t.ClassId, t.SubjectId, t.IsArchived })
+            .HasDatabaseName("IX_Template_Lookup");
+
+        modelBuilder.Entity<Template>()
+            .HasOne(t => t.SourceTemplate)
+            .WithMany(t => t.DerivedTemplates)
+            .HasForeignKey(t => t.SourceTemplateId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<Template>()
+            .HasMany(t => t.Units)
+            .WithOne(u => u.Template)
+            .HasForeignKey(u => u.TemplateId);
+
+        modelBuilder.Entity<Unit>()
+            .HasIndex(u => new { u.TemplateId, u.IsArchived })
+            .HasDatabaseName("IX_Unit_Template");
+
+        modelBuilder.Entity<Unit>()
+            .HasMany(u => u.Chapters)
+            .WithOne(c => c.Unit)
+            .HasForeignKey(c => c.UnitId);
+
+        modelBuilder.Entity<Chapter>()
+            .HasIndex(c => new { c.UnitId, c.IsArchived })
+            .HasDatabaseName("IX_Chapter_Unit");
+
+        modelBuilder.Entity<Chapter>()
+            .HasMany(c => c.Topics)
+            .WithOne(t => t.Chapter)
+            .HasForeignKey(t => t.ChapterId);
+
+        modelBuilder.Entity<Topic>()
+            .HasIndex(t => new { t.ChapterId, t.IsArchived })
+            .HasDatabaseName("IX_Topic_Chapter");
+
+        modelBuilder.Entity<CurriculumInstance>()
+            .HasIndex(ci => new { ci.AcademicYearId, ci.ClassId, ci.SectionId, ci.SubjectId })
+            .HasDatabaseName("IX_CurriculumInstance_Lookup")
+            .IsUnique();
+
+        modelBuilder.Entity<CurriculumInstance>()
+            .HasMany(ci => ci.TopicCompletions)
+            .WithOne(tc => tc.Instance)
+            .HasForeignKey(tc => tc.InstanceId);
+
+        modelBuilder.Entity<TopicCompletion>()
+            .HasIndex(tc => new { tc.InstanceId, tc.IsCompleted })
+            .HasDatabaseName("IX_TopicCompletion_Instance");
+
+        modelBuilder.Entity<TopicCompletion>()
+            .HasIndex(tc => new { tc.InstanceId, tc.TopicId })
+            .IsUnique();
+
+        modelBuilder.Entity<AcademicYear>()
+            .HasMany(y => y.CurriculumInstances)
+            .WithOne(ci => ci.AcademicYear)
+            .HasForeignKey(ci => ci.AcademicYearId);
     }
 }
