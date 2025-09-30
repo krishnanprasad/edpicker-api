@@ -3,13 +3,18 @@ using Azure.Identity;
 using Azure.Security.KeyVault.Secrets;
 using edpicker_api;
 using edpicker_api.Models;
+using edpicker_api.Models.Celebration;
 using edpicker_api.Services;
 using edpicker_api.Services.Interface;
+using Hangfire;
+using Hangfire.SqlServer;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using OpenAI;
-using Microsoft.AspNetCore.Diagnostics;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -44,7 +49,28 @@ try
     builder.Services.AddScoped<IUserRepository, UserRepository>();
     builder.Services.AddScoped<ICommonRepository, CommonRepository>();
     builder.Services.AddScoped<ILoginRepository, LoginRepository>();
+    builder.Services.Configure<CelebrationOptions>(builder.Configuration.GetSection("Celebration"));
+    builder.Services.AddSingleton(TimeProvider.System);
+    builder.Services.AddScoped<ICelebrationService, CelebrationService>();
+    builder.Services.AddHangfire(configuration => configuration
+        .UseSimpleAssemblyNameTypeSerializer()
+        .UseRecommendedSerializerSettings()
+        .UseSqlServerStorage(builder.Configuration.GetConnectionString("DefaultConnection"), new SqlServerStorageOptions
+        {
+            CommandBatchMaxTimeout = TimeSpan.FromMinutes(5),
+            SlidingInvisibilityTimeout = TimeSpan.FromMinutes(5),
+            QueuePollInterval = TimeSpan.FromSeconds(15),
+            UseRecommendedIsolationLevel = true,
+            DisableGlobalLocks = true
+        }));
+    builder.Services.AddHangfireServer();
     builder.Services.AddHttpClient();
+    builder.Services.AddHttpClient("msg91", client =>
+    {
+        var baseUrl = builder.Configuration.GetSection("Celebration")?["BaseUrl"] ?? "https://api.msg91.com/";
+        client.BaseAddress = new Uri(baseUrl);
+        client.Timeout = TimeSpan.FromSeconds(30);
+    });
 }
 catch (Exception ex)
 {
@@ -117,6 +143,7 @@ app.UseCors("AllowSpecificOrigins");
 app.UseHttpsRedirection();
 app.UseAuthentication(); // <--- Add this BEFORE app.UseAuthorization()
 app.UseAuthorization();
+app.UseHangfireDashboard();
 
 // Return a simple message on the root endpoint so the service can be probed easily.
 app.MapGet("/", () =>
@@ -125,6 +152,8 @@ app.MapGet("/", () =>
         : Results.Problem(startupError));
 
 app.MapControllers();
+
+ScheduleRecurringJobs(app);
 
 app.Run();
 static async Task<string> GetSecretFromKeyVault(IConfiguration configuration, string secretNameConfig)
@@ -146,4 +175,59 @@ static async Task<string> GetSecretFromKeyVault(IConfiguration configuration, st
         Console.WriteLine($"Error retrieving secret: {ex.Message}");
         throw; // Re-throw the exception to prevent the application from running without the key
     }
+}
+
+static void ScheduleRecurringJobs(WebApplication app)
+{
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var jobManager = scope.ServiceProvider.GetRequiredService<IRecurringJobManager>();
+        var options = scope.ServiceProvider.GetRequiredService<IOptions<CelebrationOptions>>().Value;
+        var timeZone = ResolveTimeZone(options.TimeZoneId);
+
+        jobManager.AddOrUpdate<ICelebrationService>(
+            "celebration-daily-reminders",
+            service => service.SendDailyRemindersAsync(CancellationToken.None),
+            Cron.Daily(options.NotificationHour, options.NotificationMinute),
+            new RecurringJobOptions
+            {
+                TimeZone = timeZone
+            });
+    }
+    catch (Exception ex)
+    {
+        var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Hangfire");
+        logger.LogError(ex, "Failed to schedule celebration reminders");
+    }
+}
+
+static TimeZoneInfo ResolveTimeZone(string? timeZoneId)
+{
+    if (!string.IsNullOrWhiteSpace(timeZoneId))
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+        }
+        catch
+        {
+            // ignored
+        }
+    }
+
+    var fallbacks = new[] { "Asia/Kolkata", "India Standard Time" };
+    foreach (var candidate in fallbacks)
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(candidate);
+        }
+        catch
+        {
+            // ignored
+        }
+    }
+
+    return TimeZoneInfo.Utc;
 }

@@ -1,4 +1,5 @@
 using edpicker_api.Models;
+using edpicker_api.Models.Celebration.Entities;
 using edpicker_api.Models.Dto;
 using edpicker_api.Models.Job;
 using edpicker_api.Models.Planner.Entities;
@@ -33,6 +34,12 @@ public class EdPickerDbContext : DbContext
     public DbSet<CurriculumInstance> CurriculumInstances { get; set; }
     public DbSet<TopicCompletion> TopicCompletions { get; set; }
     public DbSet<AuditLog> AuditLogs { get; set; }
+
+    public DbSet<CelebrationStudent> CelebrationStudents { get; set; }
+    public DbSet<CelebrationTeacher> CelebrationTeachers { get; set; }
+    public DbSet<CelebrationLog> CelebrationLogs { get; set; }
+    public DbSet<CelebrationAuditLog> CelebrationAuditLogs { get; set; }
+    public DbSet<CelebrationConfiguration> CelebrationConfigurations { get; set; }
 
     public EdPickerDbContext(DbContextOptions<EdPickerDbContext> options)
       : base(options) { }
@@ -80,6 +87,7 @@ public class EdPickerDbContext : DbContext
         modelBuilder.Entity<SchoolClassDto>().HasNoKey().ToView(null);
 
         ConfigurePlannerModel(modelBuilder);
+        ConfigureCelebrationModel(modelBuilder);
     }
 
     private static void ConfigurePlannerModel(ModelBuilder modelBuilder)
@@ -153,5 +161,43 @@ public class EdPickerDbContext : DbContext
             .HasMany(y => y.CurriculumInstances)
             .WithOne(ci => ci.AcademicYear)
             .HasForeignKey(ci => ci.AcademicYearId);
+    }
+
+    private static void ConfigureCelebrationModel(ModelBuilder modelBuilder)
+    {
+        const string schema = "celebration";
+
+        modelBuilder.Entity<CelebrationStudent>(entity =>
+        {
+            entity.ToTable("Students", schema);
+            entity.HasIndex(e => new { e.AdminId, e.DateOfBirth }).HasDatabaseName("IX_CelebrationStudents_Admin_Dob");
+            entity.HasIndex(e => new { e.AdminId, e.Phone }).HasDatabaseName("IX_CelebrationStudents_Admin_Phone");
+        });
+
+        modelBuilder.Entity<CelebrationTeacher>(entity =>
+        {
+            entity.ToTable("Teachers", schema);
+            entity.HasIndex(e => new { e.AdminId, e.DateOfBirth }).HasDatabaseName("IX_CelebrationTeachers_Admin_Dob");
+            entity.HasIndex(e => new { e.AdminId, e.Anniversary }).HasDatabaseName("IX_CelebrationTeachers_Admin_Anniv");
+            entity.HasIndex(e => new { e.AdminId, e.Phone }).HasDatabaseName("IX_CelebrationTeachers_Admin_Phone");
+        });
+
+        modelBuilder.Entity<CelebrationLog>(entity =>
+        {
+            entity.ToTable("Logs", schema);
+            entity.HasIndex(e => new { e.AdminId, e.EventDate }).HasDatabaseName("IX_CelebrationLogs_Admin_Date");
+            entity.HasIndex(e => new { e.AdminId, e.RecipientType, e.RecipientId, e.EventDate }).HasDatabaseName("IX_CelebrationLogs_Recipient_Date");
+        });
+
+        modelBuilder.Entity<CelebrationAuditLog>(entity =>
+        {
+            entity.ToTable("AuditTrail", schema);
+            entity.HasIndex(e => new { e.AdminId, e.Timestamp }).HasDatabaseName("IX_CelebrationAudit_Admin_Timestamp");
+        });
+
+        modelBuilder.Entity<CelebrationConfiguration>(entity =>
+        {
+            entity.ToTable("Configuration", schema);
+        });
     }
 }
